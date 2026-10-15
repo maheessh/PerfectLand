@@ -378,12 +378,31 @@ class Pilot:
         self.tests = self._read_csv("tests.csv")
         if (self.dir / "trails.json").exists():
             self.trails.extend(json.loads((self.dir / "trails.json").read_text()))
+        salvaged = False
         for g in self.generations:
-            if g["status"] == "training":  # a training run that never finished (server stopped)
+            if g["status"] == "training":  # the server stopped mid-run (closed, crashed or killed)
                 g["status"] = "stopped"
+                salvaged = self._salvage(g) or salvaged
             g["config"]["conditions"] = clean_conditions(g["config"].get("conditions"))
             g["config"]["ppo"] = clean_ppo(g["config"].get("ppo"))
             g["world"] = g["config"]["conditions"]["planet"]  # each world has its own line of generations
+        if salvaged:
+            self.save()
+
+    def _salvage(self, g):
+        """Keep what an interrupted run already saved: its best tested network and its progress."""
+        best = self.dir / f"gen-{g['gen']}" / "best_model.zip"
+        if g.get("models") or not best.exists():
+            return False
+        g["models"] = {"best": f"gen-{g['gen']}/best_model.zip"}  # flying and continuing use this one
+        tests = [t for t in self.tests if t[1] == g["gen"]]
+        attempts = [e[0] for e in self.episodes if e[1] == g["gen"]]
+        if tests:
+            g["frames_end"] = max(t[0] for t in tests)  # as of its last test
+            g["summary"] = {"last_test": tests[-1][2], "last_landed": tests[-1][3], "best_test": max(t[2] for t in tests)}
+        if attempts:
+            g["attempts_end"] = max(attempts)
+        return True
 
     def _read_csv(self, name):
         path = self.dir / name

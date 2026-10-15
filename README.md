@@ -493,6 +493,10 @@ the training logs, the learning curve, and the `reward.py` snapshot.
 - **Training is slow:** everything runs on the CPU, because a network this small trains
   fastest there. Time scales with your processor; `--envs` sets how many simulators fly
   at once.
+- **The server stopped in the middle of training** (closed, crashed, or the computer
+  slept): the next start marks that generation stopped and keeps its best-tested
+  network, so you can still fly it and continue from it. For long runs, start
+  `app.py` from a terminal you keep open.
 - **Practice lands but every test flight times out:** the pilot is hovering just above
   the pad (see [Start altitude](#start-altitude-more-room-to-land)). Keep training, or
   continue from the generation's best test (**Which version** in the training panel).

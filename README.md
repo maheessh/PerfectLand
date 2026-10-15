@@ -4,19 +4,15 @@
 
 **Teach a neural network to land a rocket on 13 worlds, and watch it learn.**
 
-[![PerfectLand, a 23-second tour: real footage of the app](media/perfectland-tour.jpg)](media/perfectland-tour.mp4)
-
-<sub>▶ <a href="media/perfectland-tour.mp4">Watch the 23-second tour</a> (MP4, with sound). Every shot is the real app, recorded while it ran.</sub>
-
-<br>
-
 <sub>Gymnasium · Stable-Baselines3 (PPO) · PyTorch · three.js · runs on a laptop</sub>
 
 </div>
 
 <br>
 
-<img src="media/highlights/landing.gif" alt="A throttle pilot lands on the Moon 0.11 m from the pad center, then on Mars 0.02 m from it, while the flight log fills in" width="100%">
+<a href="media/perfectland-tour.mp4?raw=true"><img src="media/highlights/landing.gif" alt="A throttle pilot lands on the Moon 0.11 m from the pad center, then on Mars 0.02 m from it, while the flight log fills in" width="100%"></a>
+
+<p align="center"><sub>▶ <a href="media/perfectland-tour.mp4?raw=true"><b>Watch the 23-second tour</b></a> (MP4, 6 MB, with sound). Every shot is the real app, recorded while it ran.</sub></p>
 
 A neural network learns to land a rocket in the Lunar Lander physics simulator, using
 reinforcement learning and **reward shaping**. Nobody tells it how to fly: every frame,

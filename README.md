@@ -1,21 +1,75 @@
-# PerfectLand: teach an AI to land a rocket
+<div align="center">
 
-| Before training: random buttons | After 1 million frames of practice |
-|---|---|
-| ![A random pilot crashing twice](media/random_pilot.gif) | ![The trained pilot landing three times](media/landing.gif) |
+# PerfectLand
+
+**Teach a neural network to land a rocket on 13 worlds, and watch it learn.**
+
+[![PerfectLand, a 23-second tour: real footage of the app](media/perfectland-tour.jpg)](media/perfectland-tour.mp4)
+
+<sub>▶ <a href="media/perfectland-tour.mp4">Watch the 23-second tour</a> (MP4, with sound). Every shot is the real app, recorded while it ran.</sub>
+
+<br>
+
+<sub>Gymnasium · Stable-Baselines3 (PPO) · PyTorch · three.js · runs on a laptop</sub>
+
+</div>
+
+<br>
+
+<img src="media/highlights/landing.gif" alt="A throttle pilot lands on the Moon 0.11 m from the pad center, then on Mars 0.02 m from it, while the flight log fills in" width="100%">
 
 A neural network learns to land a rocket in the Lunar Lander physics simulator, using
-reinforcement learning and **reward shaping**. Every tool is free and open source, and
-training takes about 80 seconds on the Apple M5 laptop this was built on.
-
-Nobody tells the network how to fly. Every frame, the reward function in
-[`reward.py`](reward.py) turns what just happened into points, and the network practices
-until it finds the flying style that earns the most.
+reinforcement learning and **reward shaping**. Nobody tells it how to fly: every frame,
+the reward function in [`reward.py`](reward.py) turns what just happened into points,
+and the network practices until it finds the flying style that earns the most. Training
+takes about 80 seconds on the Apple M5 laptop this was built on, and a local web app
+lets you train it, fly it on other worlds and look inside its brain.
 
 | Pilot | Landed on the pad (100 new flights) | Average score |
 |---|---|---|
 | Random button presses | 0% (89% crash, 10% fly off screen) | −201 |
 | Trained for 1 million frames | **100%** | **256** (200 = solved) |
+
+## Highlights
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="media/highlights/hook.gif" alt="An untrained network pressing random buttons tumbles out of an Earth sky and crashes beside the pad" width="100%">
+      <br><b>Attempt 1: random buttons.</b>
+      <br><sub>An untrained network on Earth. Nobody tells it how to fly, so it crashes.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="media/highlights/telemetry.gif" alt="Telemetry charts fill up while a fresh pilot trains: scores climb and the outcome bars turn from crashes to landings" width="100%">
+      <br><b>Every attempt, charted.</b>
+      <br><sub>A fresh pilot went from 0% to 95% landed in 3,960 attempts, about 80 s of training.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="media/highlights/worlds.gif" alt="The dotted 3D globe steps from Jupiter to Europa to Saturn, each with its real gravity" width="100%">
+      <br><b>13 worlds, real gravity.</b>
+      <br><sub>From Pluto's 0.7 m/s² to Jupiter's 23.1, each with its own sky, air and wind.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="media/highlights/altitude.gif" alt="The start altitude slider goes to 40 m; the camera backs away to show the rocket high above the pad, then follows it down to a landing" width="100%">
+      <br><b>Start from up to 40 m.</b>
+      <br><sub>Higher starts get more time on the clock, and pilots trained there touch down about 3× softer.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="media/highlights/neurons.gif" alt="The pilot's network in 3D: 8 sensor inputs, two layers of 64 neurons and two throttle outputs, with connections glowing as signals flow" width="100%">
+      <br><b>Inside the pilot's brain.</b>
+      <br><sub>Every connection glows with the signal it carries on this frame. Click any neuron.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="media/highlights/training.gif" alt="The training panel: pick a world, drag the start altitude to 30 m, pick a duration" width="100%">
+      <br><b>Train each world its own way.</b>
+      <br><sub>Pick the world, the start altitude and how long; each world keeps its own line of generations.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Quick start
 
@@ -35,6 +89,12 @@ python evaluate.py                 # score the pilot on 100 new flights
 python evaluate.py --random        # compare with random button presses
 python watch.py --gif flight.gif   # save landings as a GIF instead
 ```
+
+What `watch.py` shows, before and after training:
+
+| Before training: random buttons | After 1 million frames of practice |
+|---|---|
+| ![A random pilot crashing twice](media/random_pilot.gif) | ![The trained pilot landing three times](media/landing.gif) |
 
 ## Mission control: the web UI
 
@@ -398,6 +458,7 @@ More ideas to try (these haven't been measured):
 | [`app.py`](app.py) | The mission control web server: serves the UI and streams live training events. |
 | [`lab.py`](lab.py) | The worlds, pilots and their generations, recorded flights, network weights, and the training process behind the UI. |
 | [`ui/`](ui/) | The web page: [`stage.js`](ui/stage.js) (3D flights), [`worlds.js`](ui/worlds.js) (planet globes and looks), [`brain.js`](ui/brain.js) (3D network), [`charts.js`](ui/charts.js), [`nn.js`](ui/nn.js) (the network and reward, in JavaScript), [`app.js`](ui/app.js) (wiring). |
+| [`media/`](media/) | The tour video and README GIFs, recorded from the running app, plus the `watch.py` GIFs. |
 
 Each `runs/<name>/` folder made by `train.py` holds `best_model.zip`, `final_model.zip`,
 the training logs, the learning curve, and the `reward.py` snapshot.

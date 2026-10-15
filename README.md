@@ -12,7 +12,7 @@
 
 <a href="media/perfectland-tour.mp4?raw=true"><img src="media/highlights/landing.gif" alt="A throttle pilot lands on the Moon 0.11 m from the pad center, then on Mars 0.02 m from it, while the flight log fills in" width="100%"></a>
 
-<p align="center"><sub>▶ <a href="media/perfectland-tour.mp4?raw=true"><b>Watch the 23-second tour</b></a> (MP4, 6 MB, with sound). Every shot is the real app, recorded while it ran.</sub></p>
+<p align="center"><sub>▶ <a href="media/perfectland-tour.mp4?raw=true"><b>Download the 23-second tour</b></a> (MP4, 6.6 MB, with sound). Every shot is the real app, recorded while it ran.</sub></p>
 
 A neural network learns to land a rocket in the Lunar Lander physics simulator, using
 reinforcement learning and **reward shaping**. Nobody tells it how to fly: every frame,

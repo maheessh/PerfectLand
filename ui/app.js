@@ -211,6 +211,10 @@ async function weightsFor(pilot, gen, model = "best") {
   return app.weights.get(key);
 }
 
+function forgetWeights(pilot) {
+  for (const key of [...app.weights.keys()]) if (key.startsWith(`${pilot}/`)) app.weights.delete(key);
+}
+
 function generation(gen) {
   return app.pilot?.generations.find((g) => g.gen === gen);
 }
@@ -1021,7 +1025,8 @@ function renderGenerations() {
   if (!p || !p.generations.length) {
     const cell = table.insertRow().insertCell();
     cell.className = "empty-gens";
-    cell.textContent = "No generations yet. Train a new pilot to start generation 1.";
+    cell.textContent = p ? `${p.name} has no generations yet. Press Train to start it at gen 1.` : "No generations yet. Train a new pilot to start generation 1.";
+    renderGenManage();
     return;
   }
   const best = Math.max(...p.generations.map((g) => g.summary?.best_test ?? -1e9), 1);
@@ -1060,7 +1065,7 @@ function renderGenerations() {
       : g.mode === "cli" ? "train.py"
         : g.mode === "fresh" ? "blank network"
           : parent ? (worldOf(parent) === worldOf(g) ? `gen ${g.parent}` : `gen ${g.parent} · ${genLabel(parent).split(" · ")[1]}`)
-            : "new pilot";
+            : g.parent ? `gen ${g.parent} · deleted` : "new pilot";
     if (g.status === "failed" || g.status === "stopped") status.textContent += ` · ${g.status}`;
     cell(status);
     const frames = g.frames_end != null && g.frames_start != null ? g.frames_end - g.frames_start : g.frames;
@@ -1106,9 +1111,120 @@ function renderGenerations() {
         actions.append(train);
       }
     }
+    if (g.status !== "training" && app.training?.pilot !== p.name) {
+      const del = document.createElement("button");
+      del.className = "danger";
+      del.textContent = "Delete";
+      del.addEventListener("click", () => askRowDelete(actions, g));
+      actions.append(del);
+    }
     cell(actions);
   });
   table.append(body);
+  renderGenManage();
+}
+
+const attemptsOf = (gens) => app.pilot.episodes.reduce((n, e) => n + (gens.has(e[1]) ? 1 : 0), 0);
+
+/** Swap a row's buttons for "Delete gen N …? Delete / Cancel". */
+function askRowDelete(actions, g) {
+  const count = attemptsOf(new Set([g.gen]));
+  const question = Object.assign(document.createElement("span"), {
+    className: "confirm-text",
+    textContent: `Delete gen ${g.gen} (${genLabel(g).split(" · ")[1]})${count ? ` and its ${fmt.format(count)} attempts` : ""}?`,
+  });
+  const yes = Object.assign(document.createElement("button"), { className: "danger solid", textContent: "Delete" });
+  yes.addEventListener("click", () => deleteGenerations([g.gen], yes));
+  const no = Object.assign(document.createElement("button"), { textContent: "Cancel" });
+  no.addEventListener("click", renderGenerations);
+  actions.replaceChildren(question, yes, no);
+  actions.classList.add("confirming");
+}
+
+/** Under the table: delete a world's line, start the pilot over, or delete the pilot. Each needs a second click. */
+let manageAsk = null;
+function renderGenManage() {
+  const box = $("gen-manage");
+  const p = app.pilot;
+  box.replaceChildren();
+  box.hidden = !p;
+  if (!p) return;
+  const gens = p.generations;
+  const busy = app.training?.pilot === p.name;
+  const all = new Set(gens.map((g) => g.gen));
+  const actions = [];
+  if (app.genWorld !== "all") {
+    const line = new Set(gens.filter((g) => worldOf(g) === app.genWorld).map((g) => g.gen));
+    const world = app.genWorld === "custom" ? "custom-world" : app.planets[app.genWorld]?.name || app.genWorld;
+    if (line.size) {
+      const tries = fmt.format(attemptsOf(line));
+      actions.push({ id: "line", label: `Delete the ${world} line`,
+        yes: line.size === 1 ? "Delete 1 generation" : `Delete ${line.size} generations`,
+        ask: line.size === 1
+          ? `Delete the ${world} generation of ${p.name} and its ${tries} attempts? Its other worlds stay.`
+          : `Delete the ${line.size} ${world} generations of ${p.name} and their ${tries} attempts? Its other worlds stay.`,
+        run: (button) => deleteGenerations([...line], button) });
+    }
+  }
+  if (all.size) {
+    const tries = fmt.format(p.episodes.length);
+    actions.push({ id: "restart", label: "Start over",
+      yes: all.size === 1 ? "Delete 1 generation" : `Delete all ${all.size} generations`,
+      ask: `${all.size === 1 ? `Delete ${p.name}'s only generation and its` : `Delete all ${all.size} generations of ${p.name} and their`} ${tries} attempts? ${p.name} keeps its name; its next training starts again at gen 1 from a blank network.`,
+      run: (button) => deleteGenerations([...all], button) });
+  }
+  actions.push({ id: "pilot", label: `Delete ${p.name}`, yes: `Delete ${p.name}`,
+    ask: `Delete ${p.name} and everything it learned${all.size ? ` (${all.size} generation${all.size > 1 ? "s" : ""})` : ""}? It disappears from the pilot list.`,
+    run: (button) => deletePilot(p.name, button) });
+
+  const asked = actions.find((a) => a.id === manageAsk);
+  if (asked && !busy) {
+    const yes = Object.assign(document.createElement("button"), { className: "btn btn-danger", textContent: asked.yes });
+    yes.addEventListener("click", () => asked.run(yes));
+    const no = Object.assign(document.createElement("button"), { className: "btn btn-outline", textContent: "Cancel" });
+    no.addEventListener("click", () => { manageAsk = null; renderGenManage(); });
+    const text = Object.assign(document.createElement("p"), { className: "confirm-text", textContent: asked.ask });
+    const row = Object.assign(document.createElement("div"), { className: "gen-manage-buttons" });
+    row.append(yes, no);
+    box.append(text, row);
+    box.classList.add("confirming");
+    return;
+  }
+  manageAsk = null;
+  box.classList.remove("confirming");
+  const note = Object.assign(document.createElement("p"), { className: "gen-manage-note",
+    textContent: busy ? `Stop ${p.name}'s training to delete anything.` : "Deleted generations move to runs/.trash/, so you can still get them back by hand." });
+  const row = Object.assign(document.createElement("div"), { className: "gen-manage-buttons" });
+  for (const a of actions) {
+    const button = Object.assign(document.createElement("button"), { className: "btn btn-outline danger-outline", textContent: a.label, disabled: busy });
+    button.addEventListener("click", () => { manageAsk = a.id; renderGenManage(); });
+    row.append(button);
+  }
+  box.append(note, row);
+}
+
+async function deleteGenerations(gens, button) {
+  if (button) button.disabled = true;
+  try {
+    const result = await api("/api/delete-generations", { pilot: app.pilot.name, gens });
+    manageAsk = null;
+    toast(`Deleted ${gens.length === 1 ? `gen ${gens[0]}` : `${gens.length} generations`} of ${app.pilot.name}. A copy is in ${result.trash}/.`);
+  } catch (error) {
+    toast(error.message, "error");
+    if (button) button.disabled = false;
+  }
+}
+
+async function deletePilot(name, button) {
+  if (button) button.disabled = true;
+  try {
+    const result = await api("/api/delete-pilot", { pilot: name });
+    manageAsk = null;
+    toast(`Deleted ${name}. A copy is in ${result.trash}/.`);
+  } catch (error) {
+    toast(error.message, "error");
+    if (button) button.disabled = false;
+  }
 }
 
 async function flyGeneration(gen, scroll = true) {
@@ -1167,12 +1283,12 @@ function updateTrainingUi() {
   const latest = latestGen();
   const here = app.planets[app.world]?.name || "this world";
   $("btn-retrain").disabled = !!job;
-  $("btn-retrain").textContent = latest ? `Train on ${here}` : "Train a pilot";
-  $("btn-retrain-2").disabled = !!job || !latest;
+  $("btn-retrain").textContent = latest ? `Train on ${here}` : app.pilot && !app.pilot.generations.length ? `Train ${app.pilot.name}` : "Train a pilot";
+  $("btn-retrain-2").disabled = !!job || !app.pilot;
   $("btn-retrain-2").textContent = "Train this pilot";
   $("btn-new").disabled = !!job;
   $("nav-train").textContent = job ? "Stop" : "Train";
-  $("lab-train").disabled = !!job || !latest;
+  $("lab-train").disabled = !!job;
   const heroStatus = $("hero-status");
   heroStatus.hidden = !job;
   if (job) heroStatus.textContent = `Training ${job.pilot} gen ${job.gen} on ${worldName(job.conditions)}${fromHeight(job.conditions)}. Watch it live ↓`;
@@ -1279,6 +1395,22 @@ function handleEvent(event) {
     case "notice":
       toast(event.message);
       break;
+    case "deleted":
+      app.pilots = event.pilots;
+      forgetWeights(event.pilot);
+      renderPilotSelect();
+      if (mine) loadPilot(p.name);
+      break;
+    case "pilot-deleted": {
+      app.pilots = event.pilots;
+      forgetWeights(event.pilot);
+      renderPilotSelect();
+      if (mine) {
+        const names = app.pilots.map((x) => x.name);
+        loadPilot(names.includes("main") ? "main" : names[names.length - 1] || null);
+      }
+      break;
+    }
   }
 }
 
@@ -1372,6 +1504,13 @@ function check(name, label, help, checked) {
   return wrap;
 }
 
+/** Train the selected pilot: continue its lines, or start it again at gen 1 if it has none. */
+function trainHere(overrides = {}) {
+  if (latestGen()) return openDrawer("continue", overrides);
+  const empty = app.pilot && !app.pilot.generations.length;
+  return openDrawer("new", empty ? { ...overrides, pilot: app.pilot.name } : overrides);
+}
+
 function openDrawer(mode, overrides = {}) {
   drawerMode = mode;
   const d = app.defaults;
@@ -1383,17 +1522,19 @@ function openDrawer(mode, overrides = {}) {
   const world = overrides.world || app.world;
   const conditions = overrides.conditions?.planet === world || overrides.conditions?.planet === "custom"
     ? { ...overrides.conditions } : world === app.world ? { ...app.conditions } : presetConditions(world);
-  $("drawer-eyebrow").textContent = mode === "continue" ? `Pilot ${app.pilot.name}` : "New pilot";
-  $("drawer-title").textContent = mode === "continue" ? `Train ${app.pilot.name}` : "Train a new pilot";
+  const restart = mode === "new" && overrides.pilot; // an emptied pilot, starting again under its own name
+  $("drawer-eyebrow").textContent = mode === "continue" || restart ? `Pilot ${app.pilot.name}` : "New pilot";
+  $("drawer-title").textContent = mode === "continue" ? `Train ${app.pilot.name}` : restart ? `Start ${restart} again` : "Train a new pilot";
   $("drawer-sub").textContent = mode === "continue"
     ? "Each world has its own line of generations. Pick where to train and for how long; it continues that world's latest generation."
-    : "A new pilot starts from a blank network that presses random buttons.";
+    : restart ? `${restart} has no generations left, so it starts again from a blank network at gen 1. You can pick its controls and network size again.`
+      : "A new pilot starts from a blank network that presses random buttons.";
 
   // Where and how long ------------------------------------------------------------------
   const head = [];
   let n = 1;
   while (app.pilots.some((p) => p.name === `pilot-${n}`)) n++;
-  if (mode === "new") head.push(knob({ name: "pilot", label: "Pilot name", type: "text", value: `pilot-${n}` }));
+  if (mode === "new") head.push(knob({ name: "pilot", label: "Pilot name", type: "text", value: restart || `pilot-${n}` }));
   const worlds = document.createElement("div");
   worlds.className = "choice-grid worlds";
   const worldIds = conditions.planet === "custom" ? [...WORLD_ORDER, "custom"] : WORLD_ORDER;
@@ -1758,11 +1899,11 @@ async function labTour() {
 
 function bindControls() {
   $("btn-new").addEventListener("click", () => openDrawer("new"));
-  $("btn-retrain").addEventListener("click", () => openDrawer(latestGen() ? "continue" : "new"));
-  $("btn-retrain-2").addEventListener("click", () => openDrawer("continue"));
+  $("btn-retrain").addEventListener("click", () => trainHere());
+  $("btn-retrain-2").addEventListener("click", () => trainHere());
   $("btn-stop").addEventListener("click", stopTraining);
-  $("nav-train").addEventListener("click", () => (app.training ? stopTraining() : openDrawer(latestGen() ? "continue" : "new")));
-  $("mini-reward-link").addEventListener("click", () => openDrawer(latestGen() ? "continue" : "new"));
+  $("nav-train").addEventListener("click", () => (app.training ? stopTraining() : trainHere()));
+  $("mini-reward-link").addEventListener("click", () => trainHere());
   $("drawer-cancel").addEventListener("click", closeDrawer);
   $("scrim").addEventListener("click", closeDrawer);
   $("drawer-start").addEventListener("click", startTraining);
@@ -1773,7 +1914,7 @@ function bindControls() {
   $("lab-fly").addEventListener("click", labFly);
   $("lab-test").addEventListener("click", labTest);
   $("lab-tour").addEventListener("click", labTour);
-  $("lab-train").addEventListener("click", () => openDrawer(latestGen() ? "continue" : "new", { world: app.world, conditions: app.conditions }));
+  $("lab-train").addEventListener("click", () => trainHere({ world: app.world, conditions: app.conditions }));
   for (const id of ["play-btn", "deck-play"]) $(id).addEventListener("click", () => setPaused(!player.paused));
   $("deck-next").addEventListener("click", () => { setPaused(false); player.next(); });
   $("frame-slider").addEventListener("input", (e) => {

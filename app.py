@@ -84,9 +84,8 @@ class MissionControl:
 
     def state(self):
         with self.lock:
-            pilots = sorted(self.pilots.values(), key=lambda p: p.created)
             return {
-                "pilots": [p.summary() for p in pilots],
+                "pilots": self.summaries(),
                 "training": self.public_job(),
                 "defaults": {
                     "reward": lab.default_reward(),
@@ -98,6 +97,34 @@ class MissionControl:
                 "frame_fields": lab.FRAME_FIELDS,
                 "outcomes": lab.OUTCOMES,
             }
+
+    def summaries(self):
+        return [p.summary() for p in sorted(self.pilots.values(), key=lambda p: p.created)]
+
+    def delete_generations(self, name, gens):
+        """Delete some of a pilot's generations (all of them to start it over at gen 1)."""
+        gens = sorted({int(g) for g in gens})
+        if not gens:
+            raise ValueError("Pick at least one generation to delete.")
+        with self.lock:
+            if self.job and self.job["pilot"] == name:
+                raise RuntimeError(f"{name} is training. Stop it before deleting generations.")
+            trash = self.pilot(name).delete_generations(gens)
+            event = {"type": "deleted", "pilot": name, "gens": gens, "pilots": self.summaries()}
+        self.hub.publish(event)
+        return {"deleted": gens, "trash": trash.relative_to(lab.RUNS.parent).as_posix()}
+
+    def delete_pilot(self, name):
+        """Delete a pilot and all of its generations."""
+        with self.lock:
+            if self.job and self.job["pilot"] == name:
+                raise RuntimeError(f"{name} is training. Stop it before deleting it.")
+            self.pilot(name)  # raises if there is no such pilot
+            trash = lab.delete_pilot(name)
+            del self.pilots[name]
+            event = {"type": "pilot-deleted", "pilot": name, "pilots": self.summaries()}
+        self.hub.publish(event)
+        return {"deleted": name, "trash": trash.relative_to(lab.RUNS.parent).as_posix()}
 
     # Training -----------------------------------------------------------
 
@@ -153,7 +180,7 @@ class MissionControl:
                 "conditions": conditions,
                 "ppo": ppo,
                 "auto": bool(request.get("auto")),
-                "attempt_offset": len(pilot.episodes),
+                "attempt_offset": max((e[0] for e in pilot.episodes), default=0),
                 "started": time.time(),
                 "progress": {"done": 0, "fps": 0, "elapsed": 0},
             }
@@ -241,7 +268,7 @@ class MissionControl:
                 print(event["message"])
             if kind in ("done", "error") and current:
                 self.job = None
-                event = {**event, "pilots": [p.summary() for p in self.pilots.values()]}
+                event = {**event, "pilots": self.summaries()}
         self.hub.publish(event)
         if kind == "done" and current and job["auto"] and not event["stopped"]:
             try:  # keep improving: start the next generation from this one
@@ -320,6 +347,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(self.mission.start_training(body))
             if url.path == "/api/stop":
                 return self.send_json({"stopping": self.mission.stop_training()})
+            if url.path == "/api/delete-generations":
+                return self.send_json(self.mission.delete_generations(body["pilot"], body["gens"]))
+            if url.path == "/api/delete-pilot":
+                return self.send_json(self.mission.delete_pilot(body["pilot"]))
             if url.path in ("/api/fly", "/api/test"):
                 model = None
                 if not body.get("random"):

@@ -572,4 +572,20 @@ input[type="range"] { width: 100%; accent-color: #fff; }
 .gen-table .precision { white-space: nowrap; }
 .gen-table .precision small { display: block; margin-top: 3px; font-size: 11px; color: var(--ink-3); }
 .gen-wrap { overflow-x: auto; } /* a wide table scrolls inside its card, never the page */
+
+/* Deleting generations and pilots: always a second click, in a muted red. */
+:root { --danger: #a8281c; }
+.row-actions button.danger { color: var(--danger); }
+.row-actions button.danger.solid { padding: 4px 10px; background: var(--danger); color: #fff; text-decoration: none; }
+.row-actions.confirming { gap: 12px; align-items: center; }
+.row-actions .confirm-text { font-size: 13px; color: var(--ink); white-space: normal; text-align: right; max-width: 300px; }
+.gen-manage { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--hair); }
+.gen-manage[hidden] { display: none; }
+.gen-manage-note { margin: 0; font-size: 13px; color: var(--ink-2); }
+.gen-manage .confirm-text { margin: 0; max-width: 720px; font-size: 14px; color: var(--ink); }
+.gen-manage-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn.danger-outline { border-color: rgba(168, 40, 28, 0.5); color: var(--danger); }
+.btn.danger-outline:hover { background: rgba(168, 40, 28, 0.08); }
+.btn.btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.btn-danger:hover { background: #8c1f15; }
 .knob.wide select { text-align: left; }

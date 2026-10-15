@@ -168,6 +168,8 @@ per-world training is for.
   and watch the decision change. **Brain health** counts neurons that are active, quiet
   (barely move) or saturated (stuck at their limit).
 - **Generations:** every training run, filterable by world, with where it started from.
+  Delete a generation from its row, a whole world's line, or every generation at once
+  (see [Deleting generations](#deleting-generations)).
 
 ### Training: pick the world and how long
 
@@ -251,6 +253,25 @@ every height:
   the same Classic pilot for 1M frames: the one trained from 10 m landed 63 of 100 flights
   from 10 m; the one trained from 30 m landed 49 of 100 from 30 m, and 38 drifted off
   screen.
+
+### Deleting generations
+
+The Generations table can remove runs you don't want. Each takes a second click to
+confirm, and none works while that pilot is training:
+
+- **Delete** on a row removes that generation: its networks, practice attempts, test
+  flights and trails. Generations trained after it keep their own networks and still
+  fly; their "Started from" says the parent was deleted.
+- **Delete the Mars line** (it appears when you filter the table to a world) removes
+  every generation trained on that world. The pilot's other worlds stay.
+- **Start over** removes every generation but keeps the pilot's name. Its next training
+  starts again at gen 1 from a blank network, and you can pick buttons or throttle and
+  the network size again.
+- **Delete the pilot** removes it and everything it learned from the pilot list.
+
+Nothing is destroyed: deleted generations move to `runs/.trash/<pilot>/` (a deleted
+pilot to `runs/.trash/`), with the networks and the removed rows of `episodes.csv` and
+`tests.csv`, so you can put them back by hand. Empty `runs/.trash/` when you're sure.
 
 ### Where it saves things
 

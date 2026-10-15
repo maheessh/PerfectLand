@@ -182,8 +182,11 @@ export class ScoreChart extends Chart {
 
   set(episodes, generations) {
     this.episodes = episodes;
-    this.marks = generations.filter((g) => g.gen > 1 && g.attempts_start != null)
-      .map((g) => ({ x: g.attempts_start, gen: g.gen, height: startHeight(g) }));
+    // Mark where each generation's attempts begin in this list (deleted or filtered-out generations leave gaps).
+    const first = new Map();
+    episodes.forEach((e, i) => { if (!first.has(e[1])) first.set(e[1], i); });
+    this.marks = generations.filter((g) => first.get(g.gen) > 0)
+      .map((g) => ({ x: first.get(g.gen), gen: g.gen, height: startHeight(g) }));
     this.solved = solvedLabel(generations);
     this.hi = episodes.length ? scoreTop(episodes.map((e) => e[2])) : 330;
     this.rolling = new Float32Array(episodes.length);

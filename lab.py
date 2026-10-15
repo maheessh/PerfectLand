@@ -9,6 +9,8 @@ Everything lives in runs/<pilot>/:
     tests.csv      every 20-flight test
     trails.json    flight paths of the most recent practice attempts
     gen-N/         final_model.zip and best_model.zip of generation N
+
+Deleted generations and pilots move to runs/.trash/, in case you change your mind.
 """
 
 import ast
@@ -16,6 +18,7 @@ import csv
 import json
 import math
 import random
+import shutil
 import threading
 import time
 import traceback
@@ -315,6 +318,35 @@ def test_flights(model, conditions=None, flights=TEST_FLIGHTS, seed=TEST_SEED, c
 
 EPISODE_COLUMNS = ["n", "gen", "score", "outcome", "frames", "end_x", "impact"]
 TEST_COLUMNS = ["frames", "gen", "score", "landed", "flights"]
+TRASH = RUNS / ".trash"  # deleted generations and pilots, kept in case you change your mind
+
+
+def _write_csv(path, columns, rows):
+    """Replace a CSV file in one step, so a crash can't leave it half written."""
+    tmp = path.with_suffix(".csv.tmp")
+    with open(tmp, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(columns)
+        writer.writerows(rows)
+    tmp.replace(path)
+
+
+def _trash_slot(*parts):
+    """A fresh folder under runs/.trash/, named with the time so nothing is overwritten."""
+    base = TRASH.joinpath(*parts[:-1], f"{datetime.now():%Y-%m-%d-%H%M%S}-{parts[-1]}")
+    path, n = base, 1
+    while path.exists():
+        n += 1
+        path = base.with_name(f"{base.name}-{n}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def delete_pilot(name):
+    """Move a whole pilot, every generation included, to runs/.trash/."""
+    trash = _trash_slot(name)
+    shutil.move(str(RUNS / name), str(trash))
+    return trash
 
 
 def _number(text):
@@ -389,6 +421,45 @@ class Pilot:
 
     def generation(self, gen):
         return next(g for g in self.generations if g["gen"] == gen)
+
+    def delete_generations(self, gens):
+        """Remove generations with their networks, practice attempts, tests and trails.
+
+        Everything removed is moved to runs/.trash/<pilot>/. Later generations keep their
+        own networks, so they still fly; their "started from" just names a deleted one.
+        """
+        gens = {int(g) for g in gens}
+        doomed = [g for g in self.generations if g["gen"] in gens]
+        if not doomed or len(doomed) != len(gens):
+            raise ValueError("No such generation.")
+        if any(g["status"] == "training" for g in doomed):
+            raise RuntimeError("That generation is still training. Stop it first.")
+        names = [str(g["gen"]) for g in doomed]
+        trash = _trash_slot(self.name, "gen-" + "-".join(names) if len(names) <= 4 else f"{len(names)}-generations")
+        trash.mkdir()
+        gone = [e for e in self.episodes if e[1] in gens]
+        attempts_gone = {e[0] for e in gone}
+        (trash / "generations.json").write_text(json.dumps(doomed, indent=2))
+        _write_csv(trash / "episodes.csv", EPISODE_COLUMNS, gone)
+        _write_csv(trash / "tests.csv", TEST_COLUMNS, [t for t in self.tests if t[1] in gens])
+        (trash / "trails.json").write_text(json.dumps([t for t in self.trails if t[0] in attempts_gone]))
+        for g in doomed:
+            folder = self.dir / f"gen-{g['gen']}"
+            if folder.exists():
+                shutil.move(str(folder), str(trash / folder.name))
+            for model in (g.get("models") or {}).values():  # a train.py import keeps its networks at the top level
+                path = self.dir / model
+                if path.exists():
+                    shutil.move(str(path), str(trash / path.name))
+        self.generations = [g for g in self.generations if g["gen"] not in gens]
+        self.episodes = [e for e in self.episodes if e[1] not in gens]
+        self.tests = [t for t in self.tests if t[1] not in gens]
+        self.trails = deque((t for t in self.trails if t[0] not in attempts_gone), maxlen=TRAILS_KEPT)
+        self.dir.mkdir(parents=True, exist_ok=True)
+        _write_csv(self.dir / "episodes.csv", EPISODE_COLUMNS, self.episodes)
+        _write_csv(self.dir / "tests.csv", TEST_COLUMNS, self.tests)
+        self.save()
+        return trash
 
     def latest(self, world=None):
         """The newest generation with a saved network; with world, the newest trained there."""

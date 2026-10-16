@@ -842,6 +842,7 @@ def _train(job, events, stop):
             events.put({"type": "phase", "pilot": job["pilot"], "gen": job["gen"], "text": text})
         distill(model, job["teachers"], job["conditions"]["start_height"], continuous, say)
         callback.init_callback(model)
+        callback.num_timesteps = model.num_timesteps  # the callback only counts frames once practice starts
         say("Testing what it learned on every world")
         callback.test()
         say("Practising on every world")

@@ -131,7 +131,8 @@ class MissionControl:
     def public_job(self):
         if not self.job:
             return None
-        keys = ("pilot", "gen", "mode", "origin", "parent", "frames", "auto", "conditions", "reward", "ppo", "started", "progress")
+        keys = ("pilot", "gen", "mode", "origin", "parent", "teachers", "frames", "auto", "conditions", "reward", "ppo",
+                "started", "progress", "phase")
         return {k: self.job.get(k) for k in keys}
 
     def start_training(self, request):
@@ -169,10 +170,16 @@ class MissionControl:
                     if from_path is None:
                         raise ValueError(f"Generation {parent['gen']} has no saved network to continue from.")
                     mode, origin = "continue", "continue"
+            teachers = []
+            if conditions["planet"] == lab.UNIVERSAL and origin != "new pilot" and request.get("distill", True):
+                # the universal line first studies the best generation on each world
+                teachers = [{"gen": g["gen"], "world": g["world"], "conditions": g["config"]["conditions"],
+                             "path": str(pilot.model_path(g["gen"], "best"))} for g in pilot.teachers()]
             gen = max((g["gen"] for g in pilot.generations), default=0) + 1
             job = {
                 "pilot": pilot.name, "gen": gen, "mode": mode, "origin": origin,
                 "parent": parent["gen"] if parent else None,
+                "teachers": teachers,
                 "from_path": str(from_path) if from_path else None,
                 "from_model": request.get("from_model", "final"),
                 "frames": min(max(int(request.get("frames", 1_000_000)), 20_000), 20_000_000),
@@ -186,6 +193,7 @@ class MissionControl:
             }
             pilot.generations.append({
                 "gen": gen, "mode": "fresh" if origin == "fresh" else mode, "parent": job["parent"], "status": "training",
+                "teachers": [t["gen"] for t in teachers],
                 "world": conditions["planet"],
                 "started": lab.now_iso(), "duration": None, "frames": job["frames"],
                 "frames_start": None, "frames_end": None,
@@ -246,12 +254,17 @@ class MissionControl:
                 pilot.add_episodes(event["episodes"], event["trails"])
                 if current:
                     job["progress"] = {k: event[k] for k in ("done", "fps", "elapsed", "frames")}
+            elif kind == "phase" and current:  # what a universal run is doing before it practises
+                job["phase"] = event["text"]
             elif kind == "test":
                 pilot.add_test(event["row"])
                 summary = pilot.generation(event["gen"])["summary"]
                 score = event["row"][2]
                 summary["last_test"], summary["last_landed"] = score, event["row"][3]
                 summary["last_miss"], summary["last_touchdown"] = event["result"]["miss"], event["result"]["touchdown"]
+                summary["last_flights"] = event["row"][4]
+                if "worlds" in event["result"]:  # universal runs test on every world
+                    summary["last_worlds"] = event["result"]["worlds"]
                 best = summary.get("best_test")
                 summary["best_test"] = score if best is None else max(best, score)
             elif kind == "done":

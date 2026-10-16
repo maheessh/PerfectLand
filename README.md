@@ -176,7 +176,7 @@ per-world training is for.
 Every training run starts by asking four things:
 
 - **World:** where to practice. The chips show how many generations the pilot already
-  has on each world.
+  has on each world. **Universal** practises on all 13 at once (see below).
 - **Start altitude:** how high above the pad each practice flight starts (see below).
 - **Duration:** Quick (250k frames) to Extra long (5M), with time estimates based on
   your computer's measured training speed.
@@ -190,6 +190,41 @@ sections below, each knob with a one-line explanation. **Keep retraining automat
 chains generations on the same world until you press Stop. In the flight deck, each
 world is flown by its own specialist (its latest generation), or by the newest
 generation if the pilot hasn't trained there yet.
+
+### Universal: one network for every world
+
+Each world keeps its own line of generations. The **Universal** line adds one network
+meant to land anywhere, trained in two steps:
+
+1. **Study.** It first learns from the pilot's best generation on each world (most test
+   landings): that teacher flies its world while every decision is recorded, then the new
+   network flies and each frame it sees is labelled with what that world's teacher would
+   have done, so it also learns to recover from its own mistakes. Three rounds of this
+   take a few seconds per world. Every world counts equally.
+2. **Practise.** Then it trains on every world at once: 26 simulators, two per world,
+   each with that world's gravity, air, wind and engine. Its tests are 3 flights on each
+   world (39 in all); hover over Landed in the Generations table for the per-world count.
+
+The lines link both ways. The flight deck flies each world's own latest generation where
+there is one and the Universal one everywhere else, and a world's first generation can
+start from the Universal one ("bring every world's skills to Mars").
+
+On a copy of the `main` pilot, which had lines on Classic, Jupiter, Saturn, the Moon,
+Europa and a custom world, one Universal generation (studying those six, then 1M frames
+of practice, 84 s in all) gave these results over 20 new flights per world:
+
+| | Landed on the pad, all 13 worlds |
+|---|---|
+| Before: each world's own line, else the newest generation | 161 of 260 (62%) |
+| Right after studying, before any practice (39 test flights) | 32 of 39 (82%) |
+| **Universal, after practice** | **227 of 260 (87%)** |
+
+The biggest gains were on worlds with no line of their own (Earth 2 → 19 of 20, Mars
+2 → 18, Neptune 0 → 13). It also beat the Moon's own line (20 vs 15) and matched Classic,
+Jupiter and Europa. It trailed the Saturn line (14 vs 20), and the Europa generation on
+the other low-gravity worlds, Titan (13 vs 16) and Pluto (17 vs 20). The deck still flies
+a world's own line when it has one; train that world from the Universal generation, or
+give the Universal line a longer run, to close such gaps.
 
 ### Buttons or throttle
 

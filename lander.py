@@ -76,13 +76,25 @@ class ShapedReward(gym.Wrapper):
         return obs, reward, terminated, truncated, info
 
 
-def set_engine_power(multiplier):
-    """Scale the main engine's thrust for every simulator in this Python process.
+class EnginePower(gym.Wrapper):
+    """This world's main-engine thrust, as a multiple of the standard.
 
-    The simulator reads its engine strength from a module constant, so this is
-    process-wide. Each training run gets its own process.
+    The simulator reads its engine strength from a module constant shared by every
+    simulator in the process, so this sets it before each of its frames. That lets
+    simulators of different worlds take turns in one process (one thread at a time).
     """
-    lunar_lander.MAIN_ENGINE_POWER = MAIN_ENGINE_POWER * multiplier
+
+    def __init__(self, env, multiplier):
+        super().__init__(env)
+        self.power = MAIN_ENGINE_POWER * multiplier
+
+    def reset(self, **kwargs):
+        lunar_lander.MAIN_ENGINE_POWER = self.power
+        return self.env.reset(**kwargs)
+
+    def step(self, action):
+        lunar_lander.MAIN_ENGINE_POWER = self.power
+        return self.env.step(action)
 
 
 class WorldPhysics(gym.Wrapper):
@@ -169,11 +181,10 @@ def make_flight_env(render_mode=None, gravity=-10.0, enable_wind=False, wind_pow
     a throttle instead of on/off buttons. start_height is how far above the pad each
     flight starts, in meters; higher starts get more time. planet is only a label.
     """
-    set_engine_power(engine_power)
     env = gym.make(ENV_ID, render_mode=render_mode, continuous=continuous, enable_wind=enable_wind,
                    wind_power=wind_power, turbulence_power=turbulence_power,
                    max_episode_steps=time_limit(start_height))
-    env = StartHeight(WorldPhysics(env, gravity, atmosphere), start_height)
+    env = StartHeight(WorldPhysics(EnginePower(env, engine_power), gravity, atmosphere), start_height)
     if continuous:
         env = TouchdownCutoff(env)
     return LandingOutcome(env)

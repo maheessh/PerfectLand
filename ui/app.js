@@ -20,7 +20,14 @@ const WORLD_ORDER = ["classic", "mercury", "venus", "earth", "moon", "mars", "ju
 const WORLD_DOT = {
   classic: "#8d8d88", mercury: "#9a8e82", venus: "#e2c27f", earth: "#2f72b8", moon: "#a8a6a0", mars: "#c0663a",
   jupiter: "#c9a27a", europa: "#d8cbb6", saturn: "#e0c98f", titan: "#d89a46", uranus: "#93cfd6", neptune: "#3f63c9", pluto: "#cdb89b",
+  universal: "conic-gradient(#2f72b8, #c0663a, #e0c98f, #a8a6a0, #3f63c9, #d89a46, #2f72b8)", // every world
 };
+const UNIVERSAL = "universal"; // the line that learns every world at once
+
+/** "Moon", "Custom", "Universal": a line's name. */
+function worldTitle(id) {
+  return id === UNIVERSAL ? "Universal" : id === "custom" ? "Custom" : app.planets[id]?.name || id;
+}
 const signed = (v, d = 2) => `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(d)}`;
 const minus = (text) => String(text).replace("-", "−");
 
@@ -64,6 +71,7 @@ function storageSet(key, value) {
 
 function worldName(conditions) {
   const id = conditions?.planet;
+  if (id === UNIVERSAL) return "every world";
   return app.planets[id]?.name || (id === "custom" ? "Custom world" : "Classic");
 }
 
@@ -230,14 +238,26 @@ function latestGen(world) {
 
 /** The pilot that should fly a world: its own specialist, or else the newest of any world. */
 function specialist(world) {
-  return latestGen(world) || latestGen();
+  return latestGen(world) || latestGen(UNIVERSAL) || latestGen();
+}
+
+/** The best generation on each world (most test landings, then the newest), as the server picks them. */
+function teachers() {
+  const best = new Map();
+  for (const g of app.pilot?.generations || []) {
+    if (worldOf(g) === UNIVERSAL || !finished(g)) continue;
+    const key = [g.summary?.last_landed || 0, g.gen];
+    const have = best.get(worldOf(g));
+    if (!have || key[0] > have.key[0] || (key[0] === have.key[0] && key[1] > have.key[1])) best.set(worldOf(g), { key, g });
+  }
+  return [...best.values()].map((b) => b.g).sort((a, b) => a.gen - b.gen);
 }
 
 /** "gen 12 · Mars #2": the generation, its world, and its place in that world's line. */
 function genLabel(g) {
   const world = worldOf(g);
   const index = app.pilot.generations.filter((x) => worldOf(x) === world && x.gen <= g.gen).length;
-  return `gen ${g.gen} · ${world === "custom" ? "Custom" : app.planets[world]?.name || world} #${index}`;
+  return `gen ${g.gen} · ${worldTitle(world)} #${index}`;
 }
 
 const DURATIONS = [[250_000, "Quick"], [500_000, "Short"], [1_000_000, "Standard"], [2_000_000, "Long"], [5_000_000, "Extra long"]];
@@ -996,7 +1016,8 @@ function settingsSummary(config) {
 /** A row of world chips: "All worlds" plus every world this pilot has trained on. */
 function renderWorldFilter(el, current, pick) {
   const gens = app.pilot?.generations || [];
-  const worlds = [...new Set(gens.map(worldOf))].sort((a, b) => WORLD_ORDER.indexOf(a) - WORLD_ORDER.indexOf(b));
+  const rank = (id) => (id === UNIVERSAL ? -1 : id === "custom" ? 99 : WORLD_ORDER.indexOf(id)); // universal first, custom last
+  const worlds = [...new Set(gens.map(worldOf))].sort((a, b) => rank(a) - rank(b));
   el.hidden = worlds.length < 2;
   const chip = (id, label, count) => {
     const button = document.createElement("button");
@@ -1013,7 +1034,7 @@ function renderWorldFilter(el, current, pick) {
     return button;
   };
   el.replaceChildren(chip("all", "All worlds", gens.length),
-    ...worlds.map((id) => chip(id, id === "custom" ? "Custom" : app.planets[id]?.name || id, gens.filter((g) => worldOf(g) === id).length)));
+    ...worlds.map((id) => chip(id, worldTitle(id), gens.filter((g) => worldOf(g) === id).length)));
 }
 
 function renderGenerations() {
@@ -1066,6 +1087,7 @@ function renderGenerations() {
         : g.mode === "fresh" ? "blank network"
           : parent ? (worldOf(parent) === worldOf(g) ? `gen ${g.parent}` : `gen ${g.parent} · ${genLabel(parent).split(" · ")[1]}`)
             : g.parent ? `gen ${g.parent} · deleted` : "new pilot";
+    if (g.teachers?.length) status.textContent += ` · studied ${g.teachers.length} world${g.teachers.length > 1 ? "s" : ""}`;
     if (g.status === "failed" || g.status === "stopped") status.textContent += ` · ${g.status}`;
     cell(status);
     const frames = g.frames_end != null && g.frames_start != null ? g.frames_end - g.frames_start : g.frames;
@@ -1084,7 +1106,10 @@ function renderGenerations() {
     bar.append(fill);
     sc.append(sv, bar);
     cell(sc);
-    cell(g.summary?.last_landed != null ? `${g.summary.last_landed}/20` : "–", "num");
+    cell(g.summary?.last_landed != null ? `${g.summary.last_landed}/${g.summary.last_flights || 20}` : "–", "num");
+    if (g.summary?.last_worlds) { // universal: landings per world in its last test
+      tr.lastElementChild.title = Object.entries(g.summary.last_worlds).map(([w, n]) => `${worldTitle(w)} ${n}`).join(" · ");
+    }
     if (precise) {
       const precision = document.createElement("span"); // from the pad center, and touchdown speed
       if (g.summary?.last_miss != null) {
@@ -1155,7 +1180,7 @@ function renderGenManage() {
   const actions = [];
   if (app.genWorld !== "all") {
     const line = new Set(gens.filter((g) => worldOf(g) === app.genWorld).map((g) => g.gen));
-    const world = app.genWorld === "custom" ? "custom-world" : app.planets[app.genWorld]?.name || app.genWorld;
+    const world = app.genWorld === "custom" ? "custom-world" : worldTitle(app.genWorld);
     if (line.size) {
       const tries = fmt.format(attemptsOf(line));
       actions.push({ id: "line", label: `Delete the ${world} line`,
@@ -1301,7 +1326,8 @@ function updateTrainingUi() {
     $("tp-pct").textContent = `${pct.toFixed(0)}%`;
     $("tp-bar").style.width = `${pct}%`;
     const eta = progress.fps ? Math.max(0, (job.frames - progress.done) / progress.fps) : null;
-    $("tp-meta").textContent = `${fmt.format(progress.done || 0)} / ${fmt.format(job.frames)} frames` +
+    if (job.phase && !progress.done) $("tp-meta").textContent = job.phase;
+    else $("tp-meta").textContent = `${fmt.format(progress.done || 0)} / ${fmt.format(job.frames)} frames` +
       (progress.fps ? ` · ${fmt.format(progress.fps)}/s · ${eta < 90 ? `${Math.round(eta)} s` : `${Math.round(eta / 60)} min`} left` : "") +
       (job.lastTest ? ` · test ${job.lastTest}` : "") + (job.auto ? " · auto-retrain on" : "");
   }
@@ -1394,6 +1420,12 @@ function handleEvent(event) {
     }
     case "notice":
       toast(event.message);
+      break;
+    case "phase":
+      if (app.training && app.training.pilot === event.pilot && app.training.gen === event.gen) {
+        app.training.phase = event.text;
+        updateTrainingUi();
+      }
       break;
     case "deleted":
       app.pilots = event.pilots;
@@ -1537,7 +1569,7 @@ function openDrawer(mode, overrides = {}) {
   if (mode === "new") head.push(knob({ name: "pilot", label: "Pilot name", type: "text", value: restart || `pilot-${n}` }));
   const worlds = document.createElement("div");
   worlds.className = "choice-grid worlds";
-  const worldIds = conditions.planet === "custom" ? [...WORLD_ORDER, "custom"] : WORLD_ORDER;
+  const worldIds = [UNIVERSAL, ...WORLD_ORDER, ...(conditions.planet === "custom" ? ["custom"] : [])];
   for (const id of worldIds) {
     const count = mode === "continue" ? app.pilot.generations.filter((g) => finished(g) && worldOf(g) === id).length : 0;
     const label = document.createElement("label");
@@ -1545,11 +1577,12 @@ function openDrawer(mode, overrides = {}) {
     const input = Object.assign(document.createElement("input"), { type: "radio", name: "world", value: id, checked: id === conditions.planet });
     const dot = document.createElement("i");
     dot.style.background = WORLD_DOT[id] || "#898781";
-    label.append(input, dot, id === "custom" ? "Custom" : app.planets[id].name);
+    label.append(input, dot, worldTitle(id));
+    if (id === UNIVERSAL) label.classList.add("universal-chip");
     if (count) label.append(Object.assign(document.createElement("small"), { textContent: ` ${count}` }));
     worlds.append(label);
   }
-  head.push(choiceRow("World", "Where it practices. The number is how many generations this pilot already has there.", worlds));
+  head.push(choiceRow("World", "Where it practices. The number is how many generations this pilot already has there. Universal practises on all 13 worlds at once.", worlds));
   const altitude = document.createElement("div");
   altitude.className = "altitude-pick";
   const height = Object.assign(document.createElement("input"), {
@@ -1590,6 +1623,14 @@ function openDrawer(mode, overrides = {}) {
     head.push(knob({ name: "from_model", label: "Which version", value: "final", options: [["final", "as its training ended"], ["best", "its best test"]],
       help: "Continue from the network as its training ended, or from its best-scoring checkpoint." }));
   }
+  const studied = mode === "continue" ? teachers() : [];
+  const study = check("distill", "Study every world's best generation first",
+    studied.length
+      ? `Before practising, it learns how ${studied.map((g) => `${worldTitle(worldOf(g))} gen ${g.gen}`).join(", ")} fly their worlds (a few seconds each), then practises on all 13 worlds.`
+      : "This pilot has no generation on any world yet, so it only practises.", studied.length > 0);
+  study.classList.add("universal-only");
+  if (!studied.length) study.querySelector("input").disabled = true;
+  head.push(study);
   head.push(check("auto", "Keep retraining automatically", "When this generation ends, start the next one on the same world, until you press Stop.", false));
   const sections = [fieldset("Where and how long", null, head)];
 
@@ -1603,7 +1644,8 @@ function openDrawer(mode, overrides = {}) {
     knob({ name: "conditions.engine_power", label: "Engine power", value: conditions.engine_power, step: 0.01,
       help: "Main engine thrust, times the standard 17.8 m/s². Real landers carry about 1.8 times local gravity." }),
   ];
-  sections.push(folded("World details", "Filled in from the world you pick. Gravity is real; air and wind are simplified. Edit them to make a custom world.", physics));
+  const details = folded("World details", "Filled in from the world you pick. Gravity is real; air and wind are simplified. Edit them to make a custom world.", physics);
+  sections.push(details);
   if (mode === "new") {
     sections.push(folded("Controls", null, [
       knob({ name: "ppo.control", label: "Engines", value: ppo.control, def: d.ppo.control,
@@ -1647,10 +1689,14 @@ function openDrawer(mode, overrides = {}) {
       const keep = select.value;
       select.replaceChildren(...startOptions(id).map(([v, t]) => Object.assign(document.createElement("option"), { value: v, textContent: t })));
       if (overrides.fromGen && !sync.done) select.value = `gen:${overrides.fromGen}`;
+      else if (sync.newWorld) select.selectedIndex = 0; // a new world: its own best starting point
       else if ([...select.options].some((o) => o.value === keep)) select.value = keep;
+      sync.newWorld = false;
       sync.done = true;
     }
-    const name = id === "custom" ? "a custom world" : app.planets[id].name;
+    const name = id === UNIVERSAL ? "every world" : id === "custom" ? "a custom world" : app.planets[id].name;
+    details.hidden = id === UNIVERSAL; // each world keeps its own physics
+    form.querySelectorAll(".universal-only").forEach((el) => { el.hidden = id !== UNIVERSAL; });
     const from = fromHeight({ start_height: Number(form.elements["conditions.start_height"].value) });
     const scratch = mode === "new" || form.elements.start?.value === "fresh";
     scratchTip.hidden = !(scratch && Number(form.elements["conditions.start_height"].value) > START_HEIGHT);
@@ -1665,6 +1711,7 @@ function openDrawer(mode, overrides = {}) {
       }
     }
     sync.done = true;
+    sync.newWorld = true;
     sync();
   }));
   form.querySelectorAll('input[name="frames"]').forEach((input) => input.addEventListener("change", sync));
@@ -1699,9 +1746,11 @@ function folded(title, hint, children, open = false) {
 function startOptions(world) {
   const gens = app.pilot.generations.filter(finished);
   const line = gens.filter((g) => worldOf(g) === world);
-  const name = world === "custom" ? "the custom world" : app.planets[world].name;
+  const name = world === UNIVERSAL ? "every world" : world === "custom" ? "the custom world" : app.planets[world].name;
   const options = [];
-  if (line.length) options.push([`gen:${line.at(-1).gen}`, `${genLabel(line.at(-1))} · the latest on ${name}`]);
+  if (line.length) options.push([`gen:${line.at(-1).gen}`, `${genLabel(line.at(-1))} · the latest ${world === UNIVERSAL ? "universal generation" : `on ${name}`}`]);
+  const universal = gens.filter((g) => worldOf(g) === UNIVERSAL).at(-1);
+  if (world !== UNIVERSAL && universal) options.push([`gen:${universal.gen}`, `${genLabel(universal)} · bring every world's skills to ${name}`]);
   const newest = gens.at(-1);
   if (newest && newest !== line.at(-1)) options.push([`gen:${newest.gen}`, `${genLabel(newest)} · bring its skills to ${name}`]);
   for (const g of [...gens].reverse()) {
@@ -1735,7 +1784,8 @@ async function startTraining() {
   const world = form.elements.world.value;
   const preset = app.planets[world] && presetConditions(world);
   const edited = !preset || PHYSICS.some((k) => String(preset[k]) !== String(body.conditions[k]));
-  body.conditions.planet = edited ? "custom" : world;
+  body.conditions.planet = world === UNIVERSAL ? UNIVERSAL : edited ? "custom" : world;
+  body.distill = world === UNIVERSAL && !!form.elements.distill?.checked;
   if (drawerMode === "continue") {
     body.pilot = app.pilot.name;
     const start = form.elements.start.value;

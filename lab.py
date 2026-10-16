@@ -90,6 +90,10 @@ PLANETS = {
               "fact": "A whisper of air, 1/100,000 of Earth's; −225 °C."},
 }
 PHYSICS_KEYS = ["gravity", "enable_wind", "wind_power", "turbulence_power", "atmosphere", "engine_power"]
+# The universal line practises on every world at once, after studying each world's best generation.
+UNIVERSAL = "universal"
+UNIVERSAL_ENVS_PER_WORLD = 2  # 26 simulators, so every world gets the same share of practice
+UNIVERSAL_TEST_FLIGHTS = 3  # test flights per world (39 in all)
 # How far above the pad flights start, in meters. Not part of a world: Mars from 30 m is
 # still Mars, so its generations stay in Mars's line.
 START_HEIGHTS = (5.0, 40.0)
@@ -115,7 +119,7 @@ FRAME_FIELDS = [
     "o_x", "o_y", "o_vx", "o_vy", "o_angle", "o_spin", "o_left_leg", "o_right_leg",  # what the pilot saw
     "reward",  # official reward received for this frame
 ]
-FLIGHTS = threading.Lock()  # engine power is process-wide, so flights here take turns
+FLIGHTS = threading.Lock()  # engine power is a shared module constant, so threads fly one at a time
 
 
 def now_iso():
@@ -126,10 +130,19 @@ def default_reward():
     return {key: float(getattr(reward, key)) for key in REWARD_KEYS}
 
 
+def world_conditions(world, start_height=START_HEIGHT):
+    """A world's preset physics, as training and flights take them."""
+    return {"planet": world, **{k: PLANETS[world][k] for k in PHYSICS_KEYS}, "start_height": start_height}
+
+
+def world_title(world):
+    return "Universal" if world == UNIVERSAL else PLANETS[world]["name"] if world in PLANETS else "Custom world"
+
+
 def clean_conditions(raw):
     raw = dict(raw or {})
     planet = raw.get("planet")
-    if planet not in PLANETS and planet != "custom":  # older settings: find the matching world
+    if planet not in PLANETS and planet not in ("custom", UNIVERSAL):  # older settings: find the matching world
         planet = next((name for name, p in PLANETS.items()
                        if all(p[k] == raw[k] for k in PHYSICS_KEYS if k in raw)), "custom")
     base = PLANETS.get(planet, PLANETS["classic"])
@@ -314,6 +327,89 @@ def test_flights(model, conditions=None, flights=TEST_FLIGHTS, seed=TEST_SEED, c
     }
 
 
+def test_worlds(model, start_height=START_HEIGHT, flights_each=UNIVERSAL_TEST_FLIGHTS, seed=TEST_SEED):
+    """A few test flights on every world (the same terrains each time), summed up."""
+    per = {w: test_flights(model, world_conditions(w, start_height), flights_each, seed) for w in PLANETS}
+    runs = list(per.values())
+    flights = sum(r["flights"] for r in runs)
+    outcomes = {name: sum(r["outcomes"][name] for r in runs) for name in OUTCOMES}
+    landings = [(r["outcomes"]["landed on pad"] + r["outcomes"]["landed off pad"], r) for r in runs if r["miss"] is not None]
+    weight = sum(n for n, _ in landings)
+    return {
+        "flights": flights,
+        "score": round(sum(r["score"] * r["flights"] for r in runs) / flights, 1),
+        "worst": min(r["worst"] for r in runs),
+        "best": max(r["best"] for r in runs),
+        "landed": outcomes["landed on pad"],
+        "outcomes": outcomes,
+        "seconds": round(sum(r["seconds"] for r in runs) / len(runs), 1),
+        "miss": _rounded(sum(n * r["miss"] for n, r in landings) / weight) if weight else None,
+        "touchdown": _rounded(sum(n * r["touchdown"] for n, r in landings) / weight) if weight else None,
+        "worlds": {w: r["landed"] for w, r in per.items()},  # landed on the pad, out of flights_each
+    }
+
+
+def distill(model, teachers, start_height, continuous, say, rounds=3, flights=16, seed=50_000):
+    """Teach model's network what each world's best generation does on that world.
+
+    Round 1, each teacher flies its own world while its decisions are recorded. Later
+    rounds, the student flies and every frame it sees is labelled with what that world's
+    teacher would have done, so it also learns to recover from its own mistakes (DAgger).
+    Every world counts the same, however long its flights are.
+    """
+    policy = model.policy
+    loaded = [(t, PPO.load(t["path"], device="cpu")) for t in teachers]
+    if continuous:  # start with the teachers' typical amount of exploration noise
+        policy.log_std.data[:] = torch.stack([m.policy.log_std.data for _, m in loaded]).mean(0)
+    optimizer = torch.optim.Adam(policy.parameters(), lr=1e-3)
+    data = [([], [], []) for _ in loaded]  # per teacher: observations, its decisions, its value estimates
+    rng = np.random.default_rng(0)
+    for r in range(rounds):
+        for i, (t, teacher) in enumerate(loaded):
+            say(f"Studying {world_title(t['world'])} gen {t['gen']} · round {r + 1} of {rounds}")
+            env = make_flight_env(**{**t["conditions"], "start_height": start_height}, continuous=continuous)
+            driver, seen = (teacher if r == 0 else model), []
+            for k in range(flights):
+                obs, _ = env.reset(seed=seed + 1000 * r + k)
+                while True:
+                    seen.append(obs)
+                    action, _ = driver.predict(obs, deterministic=False)
+                    obs, _, terminated, truncated, _ = env.step(action if continuous else int(action))
+                    if terminated or truncated:
+                        break
+            env.close()
+            with torch.no_grad():
+                x = torch.as_tensor(np.array(seen), dtype=torch.float32)
+                dist = teacher.policy.get_distribution(x).distribution
+                data[i][0].append(x)
+                data[i][1].append(dist.mean if continuous else dist.probs)
+                data[i][2].append(teacher.policy.predict_values(x).squeeze(-1))
+        say(f"Studying · learning from {len(loaded)} worlds, round {r + 1} of {rounds}")
+        xs, ys, vs, ws = [], [], [], []
+        for obs_list, target_list, value_list in data:
+            x = torch.cat(obs_list)
+            xs.append(x), ys.append(torch.cat(target_list)), vs.append(torch.cat(value_list))
+            ws.append(torch.full((len(x),), 1.0 / len(x)))
+        x, y, v, w = torch.cat(xs), torch.cat(ys), torch.cat(vs), torch.cat(ws)
+        w = w * len(x) / w.sum()  # mean weight 1
+        policy.set_training_mode(True)
+        for _ in range(4):
+            order = torch.as_tensor(rng.permutation(len(x)))
+            for start in range(0, len(x), 256):
+                idx = order[start:start + 256]
+                dist = policy.get_distribution(x[idx]).distribution
+                if continuous:
+                    imitation = ((dist.mean - y[idx]) ** 2).sum(-1)
+                else:
+                    imitation = -(y[idx] * torch.log_softmax(dist.logits, -1)).sum(-1)
+                value_error = (policy.predict_values(x[idx]).squeeze(-1) - v[idx]) ** 2 / 1000
+                loss = (w[idx] * (imitation + value_error)).mean()
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+        policy.set_training_mode(False)
+
+
 # Storage ---------------------------------------------------------------------
 
 EPISODE_COLUMNS = ["n", "gen", "score", "outcome", "frames", "end_x", "impact"]
@@ -440,6 +536,17 @@ class Pilot:
 
     def generation(self, gen):
         return next(g for g in self.generations if g["gen"] == gen)
+
+    def teachers(self):
+        """The best generation on each world (most test landings, then the newest)."""
+        best = {}
+        for g in self.generations:
+            if g["world"] == UNIVERSAL or g["status"] == "failed" or not g.get("models"):
+                continue
+            key = ((g.get("summary") or {}).get("last_landed") or 0, g["gen"])
+            if g["world"] not in best or key > best[g["world"]][0]:
+                best[g["world"]] = (key, g)
+        return [g for _, g in sorted(best.values(), key=lambda kg: kg[1]["gen"])]
 
     def delete_generations(self, gens):
         """Remove generations with their networks, practice attempts, tests and trails.
@@ -628,6 +735,8 @@ class LabCallback(BaseCallback):
         self.attempt = job["attempt_offset"]
         self.pending, self.trails = [], []
         self.best = -math.inf
+        self.universal = job["conditions"]["planet"] == UNIVERSAL
+        self.flights = 0
 
     def _on_training_start(self):
         self.start_frames = self.num_timesteps
@@ -649,7 +758,11 @@ class LabCallback(BaseCallback):
 
     def _on_rollout_end(self):
         self.flush()
-        flight = record_flight(self.model, conditions=self.job["conditions"])
+        conditions = self.job["conditions"]
+        if self.universal:  # show a different world each round
+            conditions = world_conditions(list(PLANETS)[self.flights % len(PLANETS)], conditions["start_height"])
+        self.flights += 1
+        flight = record_flight(self.model, conditions=conditions)
         flight.update(weights=network_weights(self.model), gen=self.job["gen"], frames_trained=self.num_timesteps)
         self.send("flight", flight=flight)
         if self.num_timesteps >= self.next_test:
@@ -672,7 +785,10 @@ class LabCallback(BaseCallback):
         self.pending, self.trails = [], []
 
     def test(self):
-        result = test_flights(self.model, self.job["conditions"])
+        if self.universal:
+            result = test_worlds(self.model, self.job["conditions"]["start_height"])
+        else:
+            result = test_flights(self.model, self.job["conditions"])
         is_best = result["score"] > self.best
         if is_best:
             self.best = result["score"]
@@ -697,8 +813,14 @@ def _train(job, events, stop):
     for key, value in job["reward"].items():  # this process trains with the UI's reward settings
         setattr(reward, key, value)
     ppo = job["ppo"]
-    env_kwargs = {**job["conditions"], "continuous": ppo["control"] == "throttle"}
-    env = DummyVecEnv([partial(make_practice_env, env_kwargs) for _ in range(ppo["n_envs"])])
+    continuous = ppo["control"] == "throttle"
+    if job["conditions"]["planet"] == UNIVERSAL:  # every world at once, each with its own physics
+        height = job["conditions"]["start_height"]
+        kwargs = [{**world_conditions(w, height), "continuous": continuous}
+                  for w in PLANETS for _ in range(UNIVERSAL_ENVS_PER_WORLD)]
+    else:
+        kwargs = [{**job["conditions"], "continuous": continuous}] * ppo["n_envs"]
+    env = DummyVecEnv([partial(make_practice_env, k) for k in kwargs])
     if job["mode"] == "continue":
         model = PPO.load(job["from_path"], env=env, device="cpu", learning_rate=ppo["learning_rate"],
                          ent_coef=ppo["ent_coef"], gamma=ppo["gamma"])
@@ -715,6 +837,14 @@ def _train(job, events, stop):
     gen_dir.mkdir(parents=True, exist_ok=True)
     callback = LabCallback(job, events, stop, gen_dir)
     start = time.time()
+    if job.get("teachers"):  # study each world's best generation first, then test what that taught
+        def say(text):
+            events.put({"type": "phase", "pilot": job["pilot"], "gen": job["gen"], "text": text})
+        distill(model, job["teachers"], job["conditions"]["start_height"], continuous, say)
+        callback.init_callback(model)
+        say("Testing what it learned on every world")
+        callback.test()
+        say("Practising on every world")
     model.learn(total_timesteps=job["frames"], reset_num_timesteps=job["mode"] == "new", callback=callback)
     model.save(gen_dir / "final_model")
     env.close()

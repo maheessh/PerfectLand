@@ -589,3 +589,6 @@ input[type="range"] { width: 100%; accent-color: #fff; }
 .btn.btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn.btn-danger:hover { background: #8c1f15; }
 .knob.wide select { text-align: left; }
+
+/* The universal line: options that only apply to it, hidden for single worlds. */
+#train-form [hidden] { display: none !important; }

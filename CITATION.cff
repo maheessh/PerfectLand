@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use PerfectLand in teaching or research, please cite it."
+title: "PerfectLand: teach a neural network to land a rocket on any world"
+type: software
+authors:
+  - given-names: Mahesh Raj
+    family-names: Pandit
+repository-code: "https://github.com/maheessh/PerfectLand"
+license: MIT
+keywords:
+  - reinforcement learning
+  - PPO
+  - reward shaping
+  - policy distillation
+  - Lunar Lander
+  - interactive visualization

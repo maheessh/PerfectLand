@@ -25,6 +25,7 @@ import traceback
 from collections import deque
 from datetime import datetime, timezone
 from functools import partial
+from pathlib import Path
 
 import gymnasium as gym
 import numpy as np
@@ -675,6 +676,42 @@ def import_cli_run(name):
     pilot.add_test([int(model.num_timesteps), 1, test["score"], test["landed"], test["flights"]])
     pilot.generations[0]["summary"] = {"best_test": test["score"], "last_test": test["score"],
                                        "last_landed": test["landed"]}
+    pilot.save()
+    return pilot
+
+
+STARTER = Path(__file__).resolve().with_name("pretrained") / "universal.zip"
+
+
+def load_starter(name):
+    """A ready-trained pilot for a first visit: the Universal network in pretrained/.
+
+    It learned every world (11.5M frames: each world's best pilot, then all 13 at once), so a
+    new install can fly, test and inspect a pilot right away, or keep training it.
+    """
+    if not STARTER.exists():
+        raise ValueError("pretrained/universal.zip is missing.")
+    pilot = Pilot(name)
+    if pilot.generations:
+        raise RuntimeError(f"runs/{name} already exists.")
+    gen_dir = pilot.dir / "gen-1"
+    gen_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy(STARTER, gen_dir / "best_model.zip")
+    model = load_model(gen_dir / "best_model.zip")
+    frames = int(model.num_timesteps)
+    test = test_worlds(model)
+    ppo = dict(DEFAULT_PPO, control="throttle" if is_throttle(model) else "buttons")
+    pilot.generations = [{
+        "gen": 1, "mode": "pretrained", "status": "done", "world": UNIVERSAL, "started": now_iso(),
+        "duration": None, "frames": frames, "frames_start": 0, "frames_end": frames,
+        "attempts_start": None, "attempts_end": None,  # its practice happened elsewhere
+        "config": {"reward": default_reward(), "conditions": {**DEFAULT_CONDITIONS, "planet": UNIVERSAL}, "ppo": ppo, "frames": frames},
+        "models": {"best": "gen-1/best_model.zip"},
+        "summary": {"best_test": test["score"], "last_test": test["score"], "last_landed": test["landed"],
+                    "last_flights": test["flights"], "last_miss": test["miss"], "last_touchdown": test["touchdown"],
+                    "last_worlds": test["worlds"]},
+    }]
+    pilot.add_test([frames, 1, test["score"], test["landed"], test["flights"]])
     pilot.save()
     return pilot
 

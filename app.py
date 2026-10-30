@@ -126,6 +126,18 @@ class MissionControl:
         self.hub.publish(event)
         return {"deleted": name, "trash": trash.relative_to(lab.RUNS.parent).as_posix()}
 
+    def load_starter(self):
+        """Add the pre-trained Universal pilot (pretrained/universal.zip) as runs/starter/."""
+        with self.lock:
+            name, n = "starter", 1
+            while name in self.pilots or (lab.RUNS / name).exists():
+                n += 1
+                name = f"starter-{n}"
+            self.pilots[name] = lab.load_starter(name)
+            event = {"type": "pilot-added", "pilot": name, "pilots": self.summaries()}
+        self.hub.publish(event)
+        return {"pilot": name}
+
     # Training -----------------------------------------------------------
 
     def public_job(self):
@@ -364,6 +376,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(self.mission.delete_generations(body["pilot"], body["gens"]))
             if url.path == "/api/delete-pilot":
                 return self.send_json(self.mission.delete_pilot(body["pilot"]))
+            if url.path == "/api/load-starter":
+                return self.send_json(self.mission.load_starter())
             if url.path in ("/api/fly", "/api/test"):
                 model = None
                 if not body.get("random"):
@@ -413,6 +427,8 @@ class Handler(BaseHTTPRequestHandler):
         target = (UI_DIR / (path.lstrip("/") or "index.html")).resolve()
         if target.is_dir():
             target = target / "index.html"
+        elif not target.suffix and target.with_suffix(".html").is_file():
+            target = target.with_suffix(".html")  # /play serves play.html
         if not target.is_relative_to(UI_DIR) or not target.is_file():
             return self.send_error_json(404, "Not found")
         self.send_file(target, mimetypes.guess_type(target.name)[0] or "application/octet-stream")

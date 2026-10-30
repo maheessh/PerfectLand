@@ -22,15 +22,21 @@
 </head>
 <body>
   <header class="nav">
+    <div class="nav-left">
     <a class="brand" href="#mission" aria-label="PerfectLand home">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <circle cx="12" cy="12" r="10"/><path d="M6 16h12"/><circle cx="12" cy="9.5" r="2.2" fill="currentColor" stroke="none"/>
       </svg>
       <span>PERFECTLAND</span>
     </a>
-    <nav class="nav-links">
-      <a href="#mission">Worlds</a>
+      <div class="mode-switch" role="navigation" aria-label="PerfectLand">
+        <a href="/play" class="switch-play">Play</a>
+        <a href="/" class="on" aria-current="page">Mission control</a>
+      </div>
+    </div>
+    <nav class="nav-links" aria-label="Sections">
       <a href="#flight-deck">Flight deck</a>
+      <a href="#lander">Lander</a>
       <a href="#telemetry">Telemetry</a>
       <a href="#neurons">Neurons</a>
       <a href="#generations">Generations</a>
@@ -39,8 +45,20 @@
       <label class="pilot-select"><span>Pilot</span> <select id="pilot-select"></select></label>
       <span class="nav-status" id="nav-status"><i class="dot"></i><span>Connecting</span></span>
       <button class="btn btn-solid" id="nav-train">Train</button>
+      <button class="nav-menu" id="nav-menu" aria-expanded="false" aria-controls="nav-panel"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></button>
     </div>
   </header>
+  <div class="nav-panel" id="nav-panel" hidden>
+    <p class="eyebrow">On this page</p>
+    <a href="#flight-deck">Flight deck</a>
+    <a href="#lander">Lander</a>
+    <a href="#telemetry">Telemetry</a>
+    <a href="#neurons">Neurons</a>
+    <a href="#generations">Generations</a>
+    <p class="eyebrow">PerfectLand</p>
+    <a href="/play">Play the game</a>
+    <a href="https://github.com/maheessh/PerfectLand" target="_blank" rel="noopener">GitHub ↗</a>
+  </div>
 
   <main>
     <!-- Mission: pick a world -->
@@ -54,6 +72,14 @@
             <button class="btn btn-solid" id="btn-retrain">Retrain</button>
             <button class="btn btn-outline" id="btn-new">Train a new pilot</button>
             <button class="btn btn-outline" id="btn-stop" hidden>Stop training</button>
+            <a class="btn btn-outline" id="btn-play" href="/play">Race the AI</a>
+          </div>
+          <div class="first-run" id="first-run" hidden>
+            <p class="eyebrow">New here</p>
+            <p>No pilots yet. Load the pre-trained <b>Universal pilot</b> to fly, test and inspect it on every world right now, or press <b>Train a pilot</b>: your own lands in about 80 seconds. Everything you train stays on this computer.</p>
+            <div class="first-run-actions">
+              <button class="btn btn-solid" id="load-starter">Load the pre-trained pilot</button>
+            </div>
           </div>
           <a class="hero-status" id="hero-status" href="#flight-deck" hidden></a>
         </div>
@@ -86,8 +112,8 @@
     <section class="section deck" id="flight-deck">
       <div class="section-head">
         <div>
-          <p class="eyebrow">Flight deck</p>
-          <h2 style="margin-top: 14px">Land on any world.</h2>
+          <p class="eyebrow"><span class="num">01</span>Flight deck</p>
+          <h2>Land on any world.</h2>
           <p>Every flight gets new terrain. Pick a world and watch the pilot try it. While a pilot trains, its newest test flight plays here live.</p>
         </div>
       </div>
@@ -101,7 +127,10 @@
               <span class="outcome-badge" id="outcome-badge"></span>
               <p class="view-caption" id="flight-caption">Waiting for a flight</p>
             </div>
+            <div class="annunciator deck-lamps" id="annunciator"></div>
+            <p class="callout" id="callout" aria-live="polite"></p>
             <div class="view-controls">
+              <button class="icon-btn sound-btn" id="deck-sound" aria-label="Sound off" aria-pressed="false" title="Engine sound"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor" stroke="none"/><path class="wave" d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/><path class="mute" d="M16 9l6 6M22 9l-6 6"/></svg></button>
               <button class="icon-btn" id="deck-play" aria-label="Pause">❚❚</button>
               <button class="icon-btn" id="deck-next" aria-label="Next flight">↻</button>
             </div>
@@ -141,22 +170,24 @@
             <button class="btn btn-light btn-outline" id="lab-test">Run 20 test flights</button>
             <button class="btn btn-light btn-outline" id="lab-tour">Tour every world</button>
             <button class="btn btn-light btn-outline" id="lab-train">Train on this world</button>
+            <a class="btn btn-light btn-outline wide" id="lab-play" href="/play" target="_blank" rel="noopener">Fly it yourself vs this pilot ↗</a>
           </div>
           <div class="test-summary" id="test-summary" hidden></div>
-          <p class="eyebrow" style="margin-top: 26px">Flight log</p>
+          <p class="eyebrow flight-log-title">Flight log</p>
           <ul class="flight-log" id="flight-log"><li class="placeholder"><span class="muted">Launch a flight to log it here.</span></li></ul>
         </aside>
       </div>
     </section>
 
-    <section class="section">
+    <section class="section statement-section">
       <p class="statement">Nobody tells it<br>how to fly</p>
     </section>
 
     <!-- The learning loop, as three live cards -->
-    <section class="section" style="padding-top: 0">
+    <section class="section tight">
       <div class="section-head">
         <div>
+          <p class="eyebrow"><span class="num">02</span>How it learns</p>
           <h2>Practice · Score · Learn</h2>
           <p>The whole method in three steps, running live.</p>
         </div>
@@ -189,17 +220,29 @@
       </div>
     </section>
 
-    <!-- Telemetry -->
-    <section class="section" id="telemetry" style="padding-top: 0">
+    <!-- The lander, hand-drawn: fly it, refuel it, see inside it -->
+    <section class="section tight" id="lander">
       <div class="section-head">
         <div>
-          <p class="eyebrow">Telemetry</p>
-          <h2 style="margin-top: 14px">Every attempt, charted.</h2>
+          <p class="eyebrow"><span class="num">03</span>The lander</p>
+          <h2>What it's flying.</h2>
+          <p>The pilot fires one engine to brake and small thrusters to steer, and lands on four shock-absorbing legs. Fly this one yourself, hand it to the autopilot, or switch on See-through to watch fuel flow from the tanks to the engine.</p>
+        </div>
+      </div>
+      <div class="card figure-card"><iframe class="figure-frame" src="/figures/lander.html" title="The lander, hand-drawn: fly it, refuel it and see inside it" loading="lazy"></iframe></div>
+    </section>
+
+    <!-- Telemetry -->
+    <section class="section tight" id="telemetry">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow"><span class="num">04</span>Telemetry</p>
+          <h2>Every attempt, charted.</h2>
           <p>Each dot is one practice landing. They update live while the pilot trains.</p>
         </div>
-        <div>
+        <div class="head-side">
           <div class="legend" id="legend"></div>
-          <p style="margin: 12px 0 0; text-align: right"><a id="csv-link" href="#" class="eyebrow" style="text-decoration: none">Download CSV ↗</a></p>
+          <a id="csv-link" href="#" class="text-link">Download CSV ↗</a>
         </div>
       </div>
       <div class="world-filter" id="chart-worlds" role="tablist" aria-label="Show attempts from"></div>
@@ -230,11 +273,11 @@
     </section>
 
     <!-- Neurons -->
-    <section class="section" id="neurons" style="padding-top: 0">
+    <section class="section tight" id="neurons">
       <div class="section-head">
         <div>
-          <p class="eyebrow">Neurons</p>
-          <h2 style="margin-top: 14px">Inside the pilot's brain.</h2>
+          <p class="eyebrow"><span class="num">05</span>Neurons</p>
+          <h2>Inside the pilot's brain.</h2>
           <p>8 sensor readings go in, 4 button choices come out. Lines are connections; their glow is the signal flowing through them on this frame. Click any neuron.</p>
         </div>
       </div>
@@ -266,8 +309,8 @@
             <div class="neuron-detail" id="neuron-detail"><p class="hint">Click a neuron in the 3D view to see what it listens to and how it fires during the flight.</p></div>
           </section>
           <section>
-            <p class="eyebrow" style="display: flex; justify-content: space-between">What if…
-              <label class="toggle"><input type="checkbox" id="whatif-toggle"> set inputs by hand</label></p>
+            <div class="inspector-row"><p class="eyebrow">What if…</p>
+              <label class="toggle"><input type="checkbox" id="whatif-toggle"> set inputs by hand</label></div>
             <div class="whatif-grid" id="whatif"></div>
             <p class="hint">Freeze the flight and drag the sensors to see how the decision changes.</p>
           </section>
@@ -281,11 +324,11 @@
     </section>
 
     <!-- Generations -->
-    <section class="section" id="generations" style="padding-top: 0">
+    <section class="section tight" id="generations">
       <div class="section-head">
         <div>
-          <p class="eyebrow">Generations</p>
-          <h2 style="margin-top: 14px">Better every generation.</h2>
+          <p class="eyebrow"><span class="num">06</span>Generations</p>
+          <h2>Better every generation.</h2>
           <p>Each world has its own line of generations. Training on a world continues its latest generation; the first time, it can carry another world's skills over or start from a blank network.</p>
         </div>
         <button class="btn btn-solid" id="btn-retrain-2">Train this pilot</button>
@@ -300,23 +343,23 @@
   <footer class="footer">
     <div class="footer-top">
       <div>
-        <a class="brand" href="#mission" style="color: #fff">
+        <a class="brand footer-brand" href="#mission">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <circle cx="12" cy="12" r="10"/><path d="M6 16h12"/><circle cx="12" cy="9.5" r="2.2" fill="currentColor" stroke="none"/>
           </svg>
           <span>PERFECTLAND</span>
         </a>
-        <p style="margin: 14px 0 0; max-width: 300px; font-size: 14px; color: rgba(255,255,255,0.6)">A local mission control for teaching a neural network to land a rocket with reward shaping.</p>
+        <p class="footer-blurb">A local mission control for teaching a neural network to land a rocket with reinforcement learning and reward shaping.</p>
       </div>
-      <div><h4>Mission</h4><ul><li><a href="#mission">Worlds</a></li><li><a href="#flight-deck">Flight deck</a></li><li><a href="#telemetry">Telemetry</a></li><li><a href="#neurons">Neurons</a></li><li><a href="#generations">Generations</a></li></ul></div>
+      <div><h4>Mission</h4><ul><li><a href="#mission">Worlds</a></li><li><a href="#flight-deck">Flight deck</a></li><li><a href="#telemetry">Telemetry</a></li><li><a href="#neurons">Neurons</a></li><li><a href="#generations">Generations</a></li><li><a href="/play">Play the game</a></li></ul></div>
       <div><h4>Built with</h4><ul>
         <li><a href="https://gymnasium.farama.org/environments/box2d/lunar_lander/" target="_blank" rel="noopener">Gymnasium ↗</a></li>
         <li><a href="https://stable-baselines3.readthedocs.io" target="_blank" rel="noopener">Stable-Baselines3 ↗</a></li>
         <li><a href="https://pytorch.org" target="_blank" rel="noopener">PyTorch ↗</a></li>
         <li><a href="https://threejs.org" target="_blank" rel="noopener">three.js ↗</a></li></ul></div>
-      <div><h4>Your files</h4><ul><li>reward.py</li><li>lab.py</li><li>runs/<span id="footer-pilot">pilot</span>/</li></ul></div>
+      <div><h4>Project</h4><ul><li><a href="https://github.com/maheessh/PerfectLand" target="_blank" rel="noopener">GitHub ↗</a></li><li><a href="https://github.com/maheessh/PerfectLand/blob/main/README.md" target="_blank" rel="noopener">Guide ↗</a></li><li>Your reward: reward.py</li><li>Your pilot: runs/<span id="footer-pilot">pilot</span>/</li></ul></div>
     </div>
-    <div class="footer-bottom"><span>PerfectLand mission control</span><span id="footer-host"></span></div>
+    <div class="footer-bottom"><span>PerfectLand mission control · MIT license</span><span id="footer-host"></span></div>
   </footer>
 
   <!-- Train drawer -->
@@ -330,7 +373,7 @@
     <form class="drawer-body" id="train-form"></form>
     <footer>
       <span class="left" id="drawer-note"></span>
-      <div style="display: flex; gap: 10px">
+      <div class="drawer-buttons">
         <button class="btn btn-outline" id="drawer-cancel" type="button">Cancel</button>
         <button class="btn btn-solid" id="drawer-start" type="button">Start training</button>
       </div>

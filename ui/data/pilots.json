@@ -1,0 +1,9 @@
+[
+  {
+    "id": "universal",
+    "title": "Universal pilot",
+    "note": "One network for all 13 worlds: studied the best pilot of each world, then practised on every world at once (11.5M frames).",
+    "control": "buttons",
+    "file": "pilots/universal.json"
+  }
+]

@@ -135,6 +135,13 @@ const TILT = { earth: 23.4, mars: 25.2, saturn: 26.7, uranus: 97.8, neptune: 28.
 const RIM = { earth: "#8fc1ff", venus: "#f2d39a", titan: "#e9a95a", mars: "#e8a57c", uranus: "#c4f2f6", neptune: "#7f9fff" };
 
 // The flight deck's look for each world.
+/** Each world's color, for chips and table rows. */
+export const WORLD_DOT = {
+  classic: "#8d8d88", mercury: "#9a8e82", venus: "#e2c27f", earth: "#2f72b8", moon: "#a8a6a0", mars: "#c0663a",
+  jupiter: "#c9a27a", europa: "#d8cbb6", saturn: "#e0c98f", titan: "#d89a46", uranus: "#93cfd6", neptune: "#3f63c9", pluto: "#cdb89b",
+  universal: "conic-gradient(#2f72b8, #c0663a, #e0c98f, #a8a6a0, #3f63c9, #d89a46, #2f72b8)", // every world
+};
+
 export const LOOKS = {
   classic: { sky: ["#d8d8d4", "#d8d8d4"], ground: "#2f2f2c", line: "#0b0b0a", dark: false, fog: [34, 78] },
   mercury: { sky: ["#000000", "#16130f"], ground: "#a0948a", line: "#e6dcd0", dark: true, stars: true, fog: [40, 90],

@@ -4,12 +4,11 @@
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { createLander, NOZZLE_EXIT, RCS_PORTS } from "./lander.js";
 import { F } from "./nn.js";
 import { dotGlobe, LOOKS, setGlobeScale } from "./worlds.js";
 
-const S = 1 / 30; // simulator pixels per world unit
-const LANDER_POLY = [[-14, 17], [-17, 0], [-17, -10], [17, -10], [17, 0], [14, 17]];
-const LEG_HALF = { w: 2 * S, h: 8 * S };
+const FOOT = 8 / 30; // from a physics leg's center to its foot
 const TRAIL_COLORS = {
   light: ["#2a78d6", "#eb6834", "#1baf7a", "#898781", "#898781"],
   dark: ["#3987e5", "#d95926", "#199e70", "#8a8984", "#8a8984"],
@@ -92,6 +91,46 @@ function dotTexture(soft = false) {
   return texture;
 }
 
+/** A soft round spot (for the plume's glow on the ground and the rocket's shadow). */
+function spotTexture(rgb) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const g = c.getContext("2d");
+  const gradient = g.createRadialGradient(64, 64, 0, 64, 64, 62);
+  gradient.addColorStop(0, `rgba(${rgb},1)`);
+  gradient.addColorStop(0.45, `rgba(${rgb},0.55)`);
+  gradient.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = gradient;
+  g.fillRect(0, 0, 128, 128);
+  const texture = new THREE.CanvasTexture(c);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** The world's sky as an environment map, so the lander's metal and foil reflect it. */
+export function skyEnvironment(renderer, look) {
+  const scene = new THREE.Scene();
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 32, 16), new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: {
+      uTop: { value: new THREE.Color(look.sky[0]) },
+      uHorizon: { value: new THREE.Color(look.sky[1]) },
+      uGround: { value: new THREE.Color(look.ground).multiplyScalar(0.6) },
+    },
+    vertexShader: "varying vec3 vDir; void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+    fragmentShader: `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uGround; varying vec3 vDir;
+      void main() { float h = vDir.y; gl_FragColor = vec4(h > 0.0 ? mix(uHorizon, uTop, pow(h, 0.6)) : mix(uHorizon, uGround, smoothstep(0.0, 0.25, -h)), 1.0); }`,
+  })));
+  const sunAt = look.sun ? new THREE.Vector3(...look.sun.at) : new THREE.Vector3(-6, 12, 9);
+  const sunBall = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 8), new THREE.MeshBasicMaterial({ color: look.sun?.color || "#ffffff" }));
+  sunBall.position.copy(sunAt.normalize().multiplyScalar(9));
+  scene.add(sunBall);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const target = pmrem.fromScene(scene, 0.03);
+  pmrem.dispose();
+  return target;
+}
+
 const smooth = (a, b, v) => {
   const t = Math.min(Math.max((v - a) / (b - a), 0), 1);
   return t * t * (3 - 2 * t);
@@ -120,66 +159,27 @@ function profileAt(profile, x) {
   return last[1];
 }
 
-function buildLander() {
-  const group = new THREE.Group();
-  const shape = new THREE.Shape(LANDER_POLY.map(([x, y]) => new THREE.Vector2(x * S, y * S)));
-  const bodyGeometry = new THREE.ExtrudeGeometry(shape, {
-    depth: 0.82, bevelEnabled: true, bevelSize: 0.035, bevelThickness: 0.04, bevelSegments: 3,
-  });
-  bodyGeometry.translate(0, 0, -0.41);
-  group.add(new THREE.Mesh(bodyGeometry, new THREE.MeshStandardMaterial({ color: 0x1f1f1d, roughness: 0.45, metalness: 0.35 })));
-  const porthole = new THREE.Mesh(new THREE.CircleGeometry(0.13, 32), new THREE.MeshBasicMaterial({ color: 0xe9e9e4 }));
-  porthole.position.set(0, 0.2, 0.46);
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.13, 0.17, 32), new THREE.MeshBasicMaterial({ color: 0x5c5c57 }));
-  ring.position.set(0, 0.2, 0.455);
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.045, 0.02), new THREE.MeshBasicMaterial({ color: 0xeb6834 }));
-  stripe.position.set(0, -0.12, 0.455);
-  group.add(porthole, ring, stripe);
-
-  const metal = new THREE.MeshStandardMaterial({ color: 0x4a4a46, roughness: 0.35, metalness: 0.6 });
-  const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.19, 0.2, 24, 1, true), metal);
-  nozzle.position.set(0, -0.43, 0);
-  group.add(nozzle);
-  for (const side of [-1, 1]) {
-    const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.075, 0.14, 16), metal);
-    pod.rotation.z = (side * Math.PI) / 2;
-    pod.position.set(side * 0.6, 0.47, 0);
-    group.add(pod);
-  }
-
-  const cone = (radius, length, color, opacity) => {
-    const geometry = new THREE.ConeGeometry(radius, length, 24, 1, true);
-    geometry.translate(0, -length / 2, 0);
-    geometry.rotateX(Math.PI); // open end at the nozzle, tip pointing away
-    geometry.translate(0, -length, 0);
-    return new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false }));
-  };
-  const main = new THREE.Group();
-  main.add(cone(0.17, 1.1, 0xeb6834, 0.78), cone(0.09, 0.6, 0xffd27a, 0.95));
-  main.position.set(0, -0.53, 0);
-  group.add(main);
-  // The left engine (pushes the rocket left) vents on the right side, and vice versa.
-  const sides = { left: null, right: null };
-  for (const [name, x, dir] of [["left", 0.67, 1], ["right", -0.67, -1]]) {
-    const flame = new THREE.Group();
-    flame.add(cone(0.075, 0.5, 0xeb6834, 0.8), cone(0.04, 0.28, 0xffd27a, 0.95));
-    flame.rotation.z = dir * (Math.PI / 2);
-    flame.position.set(x, 0.47, 0);
-    group.add(flame);
-    sides[name] = flame;
-  }
-  for (const flame of [main, sides.left, sides.right]) flame.scale.setScalar(0.001);
-
-  const legMaterial = new THREE.MeshStandardMaterial({ color: 0x33332f, roughness: 0.5, metalness: 0.4 });
-  const footMaterials = [0, 1].map(() => new THREE.MeshStandardMaterial({ color: 0x33332f, roughness: 0.5 }));
-  const legs = footMaterials.map((footMaterial) => {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(LEG_HALF.w * 2, LEG_HALF.h * 2, 0.14), legMaterial);
-    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.34), footMaterial);
-    foot.position.y = -LEG_HALF.h;
-    leg.add(foot);
-    return leg;
-  });
-  return { group, main, sides, legs, footMaterials };
+/** A small floating name tag ("YOU", "AI") above a rocket. */
+function textSprite(text) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 48;
+  const g = canvas.getContext("2d");
+  g.font = "600 26px Inter, system-ui, sans-serif";
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  const w = g.measureText(text).width + 22;
+  g.fillStyle = text === "AI" ? "#3987e5" : "#010101";
+  g.fillRect((128 - w) / 2, 6, w, 36);
+  g.fillStyle = "#fff";
+  g.fillText(text, 64, 25);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthWrite: false, transparent: true }));
+  sprite.scale.set(1.1, 0.41, 1);
+  sprite.position.set(0, 1.25, 0);
+  sprite.renderOrder = 5;
+  return sprite;
 }
 
 function buildPad(scene) {
@@ -292,21 +292,52 @@ export function createStage(canvas) {
   }
 
   const { pad, flags } = buildPad(scene);
-  const lander = buildLander();
-  scene.add(lander.group, ...lander.legs);
+  const lander = createLander();
+  scene.add(lander.root);
+  // A see-through second rocket: the AI flying the same terrain beside you (the game).
+  const ghost = createLander({ ghost: true });
+  ghost.root.position.z = -1.25; // on the far edge of the pad, so both show
+  ghost.root.visible = false;
+  scene.add(ghost.root);
+  const ghostLabel = textSprite("AI");
+  const youLabel = textSprite("YOU");
+  ghost.body.add(ghostLabel);
+  lander.body.add(youLabel);
+  youLabel.visible = false;
+  const blankPose = () => ({ x: 0, y: 0, angle: 0, legs: [{ x: 0, y: 0, angle: 0 }, { x: 0, y: 0, angle: 0 }], contact: [false, false] });
+  const landerPose = blankPose(), ghostPose = blankPose();
 
+  // Exhaust and RCS gas, regolith thrown up where the plume hits the ground, the plume's glow
+  // on the ground, and the rocket's shadow.
   const exhaust = pointCloud(900);
-  const particles = Array.from({ length: 900 }, () => ({ life: 0, age: 1, p: new THREE.Vector3(), v: new THREE.Vector3() }));
+  const particles = Array.from({ length: 900 }, () => ({ life: 0, age: 1, p: new THREE.Vector3(), v: new THREE.Vector3(), kind: 0 }));
   let nextParticle = 0;
-  const hot = new THREE.Color("#ff8a3d"), smoke = new THREE.Color("#5e5e59"), tmp = new THREE.Color();
+  const hot = new THREE.Color("#ff9a4a"), smoke = new THREE.Color("#6a6a64"), vapor = new THREE.Color("#f4f6f8"), tmp = new THREE.Color();
+  const dust = pointCloud(800);
+  const grains = Array.from({ length: 800 }, () => ({ life: 0, age: 1, p: new THREE.Vector3(), v: new THREE.Vector3(), size: 0.2 }));
+  let nextGrain = 0;
+  const dustColor = new THREE.Color();
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({
+    map: spotTexture("255,150,70"), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+  }));
+  glow.rotation.x = -Math.PI / 2;
+  glow.renderOrder = 2;
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({
+    map: spotTexture("0,0,0"), transparent: true, depthWrite: false, opacity: 0.4,
+  }));
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.renderOrder = 1;
   const trails = pointCloud(16000);
   const weather = pointCloud(700);
   let weatherSpec = null;
-  scene.add(exhaust, trails, weather);
+  scene.add(exhaust, dust, glow, shadow, trails, weather);
+  let environment = null;
+  const nozzle = new THREE.Vector3(), plumeDir = new THREE.Vector3(), bodyQuat = new THREE.Quaternion();
 
   const state = {
     flight: null, look: null, world: null, cameraMode: "follow", distance: 26, showTrails: true,
-    pose: null, velocity: new THREE.Vector3(), main: 0, side: 0, wind: 0, reframe: 0,
+    pose: null, velocity: new THREE.Vector3(), main: 0, side: 0, wind: 0, reframe: 0, ghostMain: 0, ghostSide: 0,
+    air: 0, gravity: -10, profile: null, contact: [false, false], ghostShown: false,
     top: 10, // the highest point of the current flight, for the wide camera
   };
   let trailList = [];
@@ -345,6 +376,10 @@ export function createStage(canvas) {
     terrainMaterial.opacity = look.cloudFloor ? 0.75 : 1;
     terrainMaterial.needsUpdate = true;
     groundLine.material.color.set(look.line);
+
+    environment?.dispose();
+    environment = skyEnvironment(renderer, look);
+    scene.environment = environment.texture;
 
     hemi.color.set(look.dark ? "#cfd6e6" : "#ffffff");
     hemi.groundColor.set(look.ground);
@@ -423,6 +458,10 @@ export function createStage(canvas) {
   function setFlight(flight) {
     state.flight = flight;
     state.wind = flight.conditions?.enable_wind ? flight.conditions.wind_power : 0;
+    state.air = flight.conditions?.atmosphere ?? 0;
+    state.gravity = flight.conditions?.gravity ?? -10;
+    state.profile = flight.terrain;
+    state.contact[0] = state.contact[1] = false;
     setWorld(flight.conditions?.planet in LOOKS ? flight.conditions.planet : state.world || "classic");
     const profile = flight.terrain;
     fromHeights = toHeights ? terrainHeightsNow() : null;
@@ -444,66 +483,152 @@ export function createStage(canvas) {
     return out;
   }
 
+  /** Blend two recorded frames (t in 0..1) into a pose for the lander model. */
+  function blend(pose, a, b, t) {
+    const lerp = (i) => a[i] + (b[i] - a[i]) * t;
+    pose.x = lerp(F.x);
+    pose.y = lerp(F.y);
+    pose.angle = lerp(F.angle);
+    for (let i = 0; i < 2; i++) {
+      const o = i === 0 ? F.leg1 : F.leg2, leg = pose.legs[i];
+      leg.x = lerp(o);
+      leg.y = lerp(o + 1);
+      leg.angle = lerp(o + 2);
+      pose.contact[i] = a[F.obs + 6 + i] > 0.5;
+    }
+    return pose;
+  }
+
   /** Place the lander between two recorded frames (t in 0..1). */
   function setPose(a, b, t, final) {
-    const lerp = (i) => a[i] + (b[i] - a[i]) * t;
-    lander.group.position.set(lerp(F.x), lerp(F.y), 0);
-    lander.group.rotation.z = lerp(F.angle);
-    lander.legs.forEach((leg, i) => {
-      const o = i === 0 ? F.leg1 : F.leg2;
-      leg.position.set(lerp(o), lerp(o + 1), 0);
-      leg.rotation.z = lerp(o + 2);
-      const touching = a[F.obs + 6 + i] > 0.5;
-      lander.footMaterials[i].color.set(touching ? 0x3987e5 : 0x33332f);
-    });
+    lander.update(blend(landerPose, a, b, t));
+    for (let i = 0; i < 2; i++) { // a leg touching down kicks up a little dust
+      if (landerPose.contact[i] && !state.contact[i] && !final) {
+        const leg = landerPose.legs[i];
+        puff(leg.x + Math.sin(leg.angle) * FOOT, leg.y - Math.cos(leg.angle) * FOOT, 10);
+      }
+      state.contact[i] = landerPose.contact[i];
+    }
     state.velocity.set((b[F.x] - a[F.x]) * 50, (b[F.y] - a[F.y]) * 50, 0);
     state.main = final ? 0 : a[F.main];
     state.side = final ? 0 : a[F.side];
     state.pose = a;
   }
 
+  const groundAt = (x) => (state.profile ? profileAt(state.profile, x) : 0);
+
+  function spawnGas(kind, local, dir, speed, count) {
+    const body = lander.body;
+    for (let n = 0; n < count; n++) {
+      const q = particles[nextParticle];
+      nextParticle = (nextParticle + 1) % particles.length;
+      q.kind = kind;
+      q.p.copy(local).applyMatrix4(body.matrixWorld);
+      q.p.z += (Math.random() - 0.5) * 0.18;
+      q.v.copy(dir).applyQuaternion(bodyQuat).multiplyScalar(speed * (0.7 + Math.random() * 0.6));
+      q.v.x += (Math.random() - 0.5) * 0.8;
+      q.v.z += (Math.random() - 0.5) * 0.8;
+      q.v.add(state.velocity);
+      q.age = 0;
+      q.life = kind === 0 ? (state.air > 0.005 ? 0.5 + Math.random() * 0.6 : 0.18 + Math.random() * 0.14) : 0.22 + Math.random() * 0.2;
+    }
+  }
+
+  /** Regolith (or cloud vapor) thrown sideways from (x, y). */
+  function puff(x, y, count, strength = 0.6) {
+    const vacuum = state.air < 0.005;
+    for (let n = 0; n < count; n++) {
+      const q = grains[nextGrain];
+      nextGrain = (nextGrain + 1) % grains.length;
+      const side = Math.random() < 0.5 ? -1 : 1, spread = Math.random();
+      q.p.set(x + (Math.random() - 0.5) * 0.25, y + 0.04, (Math.random() - 0.5) * 0.6);
+      const speed = (vacuum ? 4.5 + Math.random() * 5 : 1.4 + Math.random() * 2.6) * strength;
+      q.v.set(side * speed * (0.55 + 0.45 * spread), speed * (vacuum ? 0.12 + Math.random() * 0.12 : 0.2 + Math.random() * 0.3), (Math.random() - 0.5) * speed * 0.9);
+      q.age = 0;
+      q.life = vacuum ? 0.5 + Math.random() * 0.5 : 0.9 + Math.random() * 1.1;
+      q.size = vacuum ? 0.08 + Math.random() * 0.08 : 0.16 + Math.random() * 0.2;
+    }
+  }
+
   function emit(dt) {
-    const group = lander.group;
-    group.updateMatrixWorld();
-    const spawn = (local, dir, speed, count) => {
-      for (let n = 0; n < count; n++) {
-        const q = particles[nextParticle];
-        nextParticle = (nextParticle + 1) % particles.length;
-        q.p.copy(local).applyMatrix4(group.matrixWorld);
-        q.p.z += (Math.random() - 0.5) * 0.25;
-        q.v.copy(dir).applyQuaternion(group.quaternion).multiplyScalar(speed * (0.7 + Math.random() * 0.6));
-        q.v.x += (Math.random() - 0.5) * 1.2;
-        q.v.z += (Math.random() - 0.5) * 1.2;
-        q.v.add(state.velocity);
-        q.age = 0;
-        q.life = 0.5 + Math.random() * 0.6;
-      }
-    };
-    if (state.main > 0) spawn(new THREE.Vector3(0, -0.6, 0), new THREE.Vector3(0, -1, 0), 7 * state.main, Math.round(6 * state.main));
-    if (state.side < 0) spawn(new THREE.Vector3(0.75, 0.47, 0), new THREE.Vector3(1, 0, 0), 4, Math.round(3 * -state.side));
-    if (state.side > 0) spawn(new THREE.Vector3(-0.75, 0.47, 0), new THREE.Vector3(-1, 0, 0), 4, Math.round(3 * state.side));
+    const body = lander.body;
+    body.updateMatrixWorld();
+    body.getWorldQuaternion(bodyQuat);
+    const air = state.air, main = state.main;
+    // Exhaust: in air it leaves a fading trail of hot gas and smoke; in vacuum it disperses at once.
+    if (main > 0) spawnGas(0, NOZZLE_EXIT, plumeDir.set(0, -1, 0), 7 * main, Math.round((air > 0.005 ? 5 : 2) * main));
+    if (state.side < 0) spawnGas(1, RCS_PORTS[0], plumeDir.set(1, 0, 0), 3.2, Math.round(3 * -state.side));
+    if (state.side > 0) spawnGas(1, RCS_PORTS[1], plumeDir.set(-1, 0, 0), 3.2, Math.round(3 * state.side));
 
     const pos = exhaust.geometry.attributes.position.array;
     const col = exhaust.geometry.attributes.aColor.array;
     const alpha = exhaust.geometry.attributes.aAlpha.array;
     const size = exhaust.geometry.attributes.aSize.array;
+    const drag = 1 - Math.min(1, (air > 0.005 ? 1.8 : 0.4) * dt);
     particles.forEach((q, i) => {
       if (q.age < q.life) {
         q.age += dt;
-        q.v.y -= 1.5 * dt;
+        if (air > 0.005) q.v.y -= 1.2 * dt;
         q.v.x += state.wind * 0.08 * dt;
-        q.v.multiplyScalar(1 - 1.8 * dt);
+        q.v.multiplyScalar(drag);
         q.p.addScaledVector(q.v, dt);
       }
       const k = Math.min(q.age / q.life, 1);
-      tmp.copy(hot).lerp(smoke, Math.min(k * 1.6, 1));
+      if (q.kind === 1) tmp.copy(vapor);
+      else tmp.copy(hot).lerp(smoke, air > 0.005 ? Math.min(k * 1.6, 1) : 0);
       pos.set([q.p.x, q.p.y, q.p.z], i * 3);
       col.set([tmp.r, tmp.g, tmp.b], i * 3);
-      alpha[i] = k >= 1 ? 0 : (1 - k) * 0.9;
-      size[i] = 0.07 + k * 0.16;
+      alpha[i] = k >= 1 ? 0 : (1 - k) * (q.kind === 1 ? 0.55 : air > 0.005 ? 0.85 : 0.6);
+      size[i] = q.kind === 1 ? 0.05 + k * 0.22 : 0.06 + k * (air > 0.005 ? 0.18 : 0.05);
     });
     touch(exhaust, "position", "aColor", "aAlpha", "aSize");
     exhaust.geometry.setDrawRange(0, particles.length);
+
+    // Where the plume meets the ground: dust sprays out and the ground glows.
+    nozzle.copy(NOZZLE_EXIT).applyMatrix4(body.matrixWorld);
+    plumeDir.set(0, -1, 0).applyQuaternion(bodyQuat);
+    let strength = 0, hitX = nozzle.x;
+    if (main > 0 && plumeDir.y < -0.25) {
+      const reach = Math.max(0, nozzle.y - groundAt(nozzle.x)) / -plumeDir.y;
+      hitX = nozzle.x + plumeDir.x * reach;
+      strength = main * Math.max(0, 1 - reach / 3.4);
+    }
+    const hitY = groundAt(hitX);
+    if (strength > 0.02) puff(hitX, hitY, Math.round(strength * 7 + Math.random()), 0.5 + strength);
+    glow.visible = strength > 0.02;
+    glow.position.set(hitX, hitY + 0.03, 0.1);
+    glow.scale.setScalar(0.35 + 0.9 * strength);
+    glow.material.opacity = Math.min(1, strength * (state.look.dark ? 1.1 : 0.7)) * (0.85 + Math.random() * 0.15);
+
+    dustColor.set(state.look.cloudFloor ? "#f2efe8" : state.look.ground).lerp(vapor, state.look.dark ? 0.15 : 0.3);
+    const gpos = dust.geometry.attributes.position.array;
+    const gcol = dust.geometry.attributes.aColor.array;
+    const galpha = dust.geometry.attributes.aAlpha.array;
+    const gsize = dust.geometry.attributes.aSize.array;
+    const vacuum = air < 0.005, fall = state.gravity * 0.35, gdrag = 1 - Math.min(1, (vacuum ? 0.15 : 1.6) * dt);
+    grains.forEach((q, i) => {
+      if (q.age < q.life) {
+        q.age += dt;
+        q.v.y += (vacuum ? fall : 0.25) * dt; // in vacuum grains fly ballistic; in air they billow up
+        q.v.x += state.wind * 0.05 * dt;
+        q.v.multiplyScalar(gdrag);
+        q.p.addScaledVector(q.v, dt);
+      }
+      const k = Math.min(q.age / q.life, 1);
+      gpos.set([q.p.x, q.p.y, q.p.z], i * 3);
+      gcol.set([dustColor.r, dustColor.g, dustColor.b], i * 3);
+      galpha[i] = k >= 1 ? 0 : (1 - k) * (vacuum ? 0.8 : 0.45) * Math.min(1, q.age * 12);
+      gsize[i] = q.size * (vacuum ? 1 : 1 + k * 2.2);
+    });
+    touch(dust, "position", "aColor", "aAlpha", "aSize");
+    dust.geometry.setDrawRange(0, grains.length);
+
+    // The rocket's shadow: darker and tighter the lower it flies.
+    const p = landerPose, height = Math.max(0, p.y - groundAt(p.x));
+    shadow.visible = !!state.pose && height < 9;
+    shadow.position.set(p.x + height * 0.12, groundAt(p.x + height * 0.12) + 0.02, 0.05);
+    shadow.scale.set(1.05 + height * 0.08, 0.7 + height * 0.05, 1); // the plane lies flat: its y runs along z
+    shadow.material.opacity = (state.look.dark ? 0.6 : 0.32) * Math.max(0, 1 - height / 9);
   }
 
   function driftWeather(dt, time) {
@@ -555,7 +680,7 @@ export function createStage(canvas) {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     const scale = (h * renderer.getPixelRatio()) / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
-    for (const points of [exhaust, trails, weather]) points.material.uniforms.uScale.value = scale;
+    for (const points of [exhaust, dust, trails, weather]) points.material.uniforms.uScale.value = scale;
     for (const b of bodies) setGlobeScale(b.materials, renderer, camera);
   }
   new ResizeObserver(resize).observe(canvas);
@@ -564,6 +689,7 @@ export function createStage(canvas) {
   applyTerrain(1);
 
   const desired = new THREE.Vector3();
+  const engineState = { main: 0, side: 0, air: 0, dt: 0, time: 0 };
   let time = 0;
   function render(dt) {
     time += dt;
@@ -571,15 +697,17 @@ export function createStage(canvas) {
       morph = Math.min(morph + dt / 0.9, 1);
       applyTerrain(morph);
     }
-    const flame = (power, group) => {
-      const target = power > 0 ? (0.55 + 0.45 * power) * (0.88 + Math.sin(time * 61) * 0.1 + Math.random() * 0.06) : 0.001;
-      const s = group.scale.x + (target - group.scale.x) * Math.min(dt * 30, 1);
-      group.scale.setScalar(Math.max(s, 0.001));
-      group.visible = s > 0.02;
-    };
-    flame(state.main, lander.main);
-    flame(Math.max(-state.side, 0), lander.sides.left);
-    flame(Math.max(state.side, 0), lander.sides.right);
+    engineState.main = state.main;
+    engineState.side = state.side;
+    engineState.air = state.air;
+    engineState.dt = dt;
+    engineState.time = time;
+    lander.engines(engineState);
+    if (state.ghostShown) {
+      engineState.main = state.ghostMain;
+      engineState.side = state.ghostSide;
+      ghost.engines(engineState);
+    }
     emit(dt);
     driftWeather(dt, time);
     trails.visible = state.showTrails;
@@ -591,7 +719,7 @@ export function createStage(canvas) {
       // the rocket out of the top fifth of the view, where the caption sits. Flights that start
       // high need the camera to back away: follow backs up to 2.6 times the chosen distance and
       // then keeps just the rocket in view; wide backs up to 3.2 times.
-      const p = lander.group.position;
+      const p = landerPose;
       const follow = state.cameraMode === "follow" && state.pose;
       const y = follow ? p.y : state.top, room = 0.4, ground = -1.5; // room: share of the upper half kept clear
       const tan = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
@@ -617,10 +745,23 @@ export function createStage(canvas) {
     renderer.render(scene, camera);
   }
 
+  /** The AI's rocket in the game, between two frames like setPose; null hides it. */
+  function setGhost(a, b, t, final) {
+    const show = !!a;
+    state.ghostShown = show;
+    ghost.root.visible = show;
+    youLabel.visible = show;
+    if (!show) return;
+    ghost.update(blend(ghostPose, a, b, t));
+    state.ghostMain = final ? 0 : a[F.main];
+    state.ghostSide = final ? 0 : a[F.side];
+  }
+
   return {
     setWorld,
     setFlight,
     setPose,
+    setGhost,
     setTrails,
     render,
     options: state,

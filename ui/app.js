@@ -7,8 +7,11 @@ import { legend, OUTCOME_COLORS, OutcomeChart, ScoreChart, TestChart, TouchdownC
 import {
   ACTIONS, analyzeFlight, F, forward, INPUTS, OUTCOME_LABEL, OUTCOMES, potential, prepare, rewardBreakdown, THROTTLE_OUTPUTS,
 } from "./nn.js";
+import { createAnnunciator } from "./annunciator.js";
+import { setupNav } from "./nav.js";
+import { createSound } from "./sound.js";
 import { createStage } from "./stage.js";
-import { createGlobe } from "./worlds.js";
+import { WORLD_DOT, createGlobe } from "./worlds.js";
 
 const $ = (id) => document.getElementById(id);
 const fmt = new Intl.NumberFormat("en-US");
@@ -17,11 +20,6 @@ const FPS = 50;
 const PHYSICS = ["gravity", "enable_wind", "wind_power", "turbulence_power", "atmosphere", "engine_power"];
 const START_HEIGHT = 10; // meters above the pad where the simulator starts every flight
 const WORLD_ORDER = ["classic", "mercury", "venus", "earth", "moon", "mars", "jupiter", "europa", "saturn", "titan", "uranus", "neptune", "pluto"];
-const WORLD_DOT = {
-  classic: "#8d8d88", mercury: "#9a8e82", venus: "#e2c27f", earth: "#2f72b8", moon: "#a8a6a0", mars: "#c0663a",
-  jupiter: "#c9a27a", europa: "#d8cbb6", saturn: "#e0c98f", titan: "#d89a46", uranus: "#93cfd6", neptune: "#3f63c9", pluto: "#cdb89b",
-  universal: "conic-gradient(#2f72b8, #c0663a, #e0c98f, #a8a6a0, #3f63c9, #d89a46, #2f72b8)", // every world
-};
 const UNIVERSAL = "universal"; // the line that learns every world at once
 
 /** "Moon", "Custom", "Universal": a line's name. */
@@ -102,6 +100,8 @@ function precisionText(r) {
 // Views ------------------------------------------------------------------------
 
 const stage = createStage($("stage"));
+const lamps = createAnnunciator($("annunciator"), $("callout"));
+const sound = createSound({ fallback: false }); // replays loop all day, so sound starts off here
 const globe = createGlobe($("globe"));
 const brain = createBrain({ canvas: $("brain-canvas"), labels: $("brain-labels"), view: $("brain-view") });
 const charts = {
@@ -165,6 +165,8 @@ const player = {
     this.cumulative = flight.frames.map((f) => (sum += f[F.reward]) - f[F.reward]);
     this.analysis = weights ? analyzeFlight(weights, flight.frames, F.obs) : null;
     stage.setFlight(flight);
+    lamps.reset();
+    this.crashed = false;
     if (weights) brain.setNetwork(weights);
     $("frame-slider").max = flight.frames.length - 1;
     $("flight-caption").textContent = caption;
@@ -979,7 +981,10 @@ function refreshCharts(now = false) {
 
 function updateKpis() {
   const p = app.pilot;
-  $("strip-pilot").textContent = p ? `Pilot ${p.name}` : "No pilot yet";
+  const label = $("strip-pilot");
+  label.textContent = "Pilot";
+  label.append(Object.assign(document.createElement("b"), { textContent: p ? p.name : "none yet" }));
+  $("first-run").hidden = app.pilots.length > 0 || !!app.training;
   $("footer-pilot").textContent = p?.name || "pilot";
   $("csv-link").href = p ? `/api/episodes.csv?pilot=${encodeURIComponent(p.name)}` : "#";
   const training = liveHere() ? app.training : null;
@@ -1084,6 +1089,7 @@ function renderGenerations() {
     const parent = g.parent ? generation(g.parent) : null;
     status.textContent = g.status === "training" ? "training…"
       : g.mode === "cli" ? "train.py"
+        : g.mode === "pretrained" ? "pre-trained"
         : g.mode === "fresh" ? "blank network"
           : parent ? (worldOf(parent) === worldOf(g) ? `gen ${g.parent}` : `gen ${g.parent} · ${genLabel(parent).split(" · ")[1]}`)
             : g.parent ? `gen ${g.parent} · deleted` : "new pilot";
@@ -1123,14 +1129,17 @@ function renderGenerations() {
     actions.className = "row-actions";
     if (finished(g)) {
       const fly = document.createElement("button");
+      fly.className = "act-fly";
       fly.textContent = "Fly";
       fly.addEventListener("click", () => flyGeneration(g.gen));
       const inspect = document.createElement("button");
+      inspect.className = "act-brain";
       inspect.textContent = "Brain";
       inspect.addEventListener("click", async () => { await flyGeneration(g.gen, false); $("neurons").scrollIntoView(); });
       actions.append(fly, inspect);
       if (latestGen(worldOf(g)) === g && !app.training) { // the head of this world's line
         const train = document.createElement("button");
+        train.className = "act-train";
         train.textContent = "Train ↗";
         train.addEventListener("click", () => openDrawer("continue", { world: worldOf(g), conditions: g.config.conditions, fromGen: g.gen }));
         actions.append(train);
@@ -1270,6 +1279,32 @@ async function flyGeneration(gen, scroll = true) {
 
 // Pilot loading and the live stream -----------------------------------------------------
 
+// The hand-drawn figures live in their own pages; each tells us its height so its frame fits it.
+addEventListener("message", (e) => {
+  if (!e.data?.figure || !e.data.height) return;
+  for (const frame of document.querySelectorAll(".figure-frame")) if (frame.contentWindow === e.source) frame.style.height = `${Math.ceil(e.data.height)}px`;
+});
+
+/** First visit: add the pre-trained Universal pilot that ships in pretrained/, then show it. */
+async function loadStarter() {
+  const button = $("load-starter");
+  button.disabled = true;
+  button.textContent = "Testing it on every world…";
+  try {
+    const { pilot } = await api("/api/load-starter", {});
+    app.pilots = (await api("/api/state")).pilots;
+    renderPilotSelect();
+    await loadPilot(pilot);
+    toast(`Loaded ${pilot}: one network that lands on all 13 worlds. Fly it, or train it further.`);
+    $("flight-deck").scrollIntoView();
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Load the pre-trained pilot";
+  }
+}
+
 async function loadPilot(name) {
   app.pilot = name ? await api(`/api/pilot?name=${encodeURIComponent(name)}`) : null;
   if (name) storageSet("pilot", name);
@@ -1312,6 +1347,7 @@ function updateTrainingUi() {
   $("btn-retrain-2").disabled = !!job || !app.pilot;
   $("btn-retrain-2").textContent = "Train this pilot";
   $("btn-new").disabled = !!job;
+  $("btn-new").hidden = !app.pilots.length; // with no pilots, the main button already starts one
   $("nav-train").textContent = job ? "Stop" : "Train";
   $("lab-train").disabled = !!job;
   const heroStatus = $("hero-status");
@@ -1433,6 +1469,13 @@ function handleEvent(event) {
       renderPilotSelect();
       if (mine) loadPilot(p.name);
       break;
+    case "pilot-added": {
+      app.pilots = event.pilots;
+      renderPilotSelect();
+      updateKpis();
+      updateTrainingUi();
+      break;
+    }
     case "pilot-deleted": {
       app.pilots = event.pilots;
       forgetWeights(event.pilot);
@@ -1949,6 +1992,17 @@ async function labTour() {
 
 function bindControls() {
   $("btn-new").addEventListener("click", () => openDrawer("new"));
+  $("load-starter").addEventListener("click", loadStarter);
+  $("lab-play").addEventListener("click", () => { // race the pilot shown here, on this world
+    const url = new URL("/play", location.origin);
+    url.searchParams.set("world", app.planets[app.world] ? app.world : "classic");
+    const gen = Number($("lab-gen").value) || latestGen()?.gen;
+    if (app.pilot && gen) {
+      url.searchParams.set("pilot", app.pilot.name);
+      url.searchParams.set("gen", gen);
+    }
+    $("lab-play").href = url.pathname + url.search;
+  });
   $("btn-retrain").addEventListener("click", () => trainHere());
   $("btn-retrain-2").addEventListener("click", () => trainHere());
   $("btn-stop").addEventListener("click", stopTraining);
@@ -1967,6 +2021,15 @@ function bindControls() {
   $("lab-train").addEventListener("click", () => trainHere({ world: app.world, conditions: app.conditions }));
   for (const id of ["play-btn", "deck-play"]) $(id).addEventListener("click", () => setPaused(!player.paused));
   $("deck-next").addEventListener("click", () => { setPaused(false); player.next(); });
+  const soundButton = $("deck-sound");
+  const showSound = () => {
+    soundButton.classList.toggle("on", sound.enabled);
+    soundButton.setAttribute("aria-label", sound.enabled ? "Sound on" : "Sound off");
+    soundButton.setAttribute("aria-pressed", String(sound.enabled));
+  };
+  soundButton.addEventListener("click", () => { sound.enable(!sound.enabled); if (!sound.enabled) sound.silence(); showSound(); });
+  addEventListener("pointerdown", () => sound.wake(), { once: true });
+  showSound();
   $("frame-slider").addEventListener("input", (e) => {
     player.t = Number(e.target.value);
     player.hold = 0;
@@ -2006,7 +2069,15 @@ function loop(now) {
   if (frames.length) {
     const i = player.index;
     const a = frames[i], b = frames[Math.min(i + 1, frames.length - 1)];
-    stage.setPose(a, b, player.t - i, i === frames.length - 1);
+    const final = i === frames.length - 1;
+    stage.setPose(a, b, player.t - i, final);
+    const main = final ? 0 : a[F.main], side = final ? 0 : a[F.side];
+    const happened = lamps.update(main, side, [a[F.obs + 6], a[F.obs + 7]]);
+    if (visible.stage && !player.paused) {
+      sound.update(main, side, player.flight.conditions?.atmosphere ?? 0);
+      if (happened.contact) { sound.ping(); sound.touchdown(0.7); }
+      if (final && player.outcomeCode === 3 && !player.crashed) { player.crashed = true; sound.crash(); }
+    } else sound.silence();
     if (i !== player.lastFrame || now - lastHud > 250) {
       player.lastFrame = i;
       lastHud = now;
@@ -2044,8 +2115,16 @@ async function init() {
   const names = app.pilots.map((p) => p.name);
   const start = app.training?.pilot || (names.includes(saved) ? saved : names.includes("main") ? "main" : names[names.length - 1]);
   connect();
+  setupNav();
   requestAnimationFrame(loop);
   await loadPilot(start || null);
+  // Arrived from the game's "Train your AI": open the training panel for that world.
+  const wanted = new URLSearchParams(location.search).get("train");
+  if (wanted && !app.training) {
+    if (app.planets[wanted]) selectWorld(wanted, { fly: false });
+    history.replaceState(null, "", location.pathname);
+    trainHere({ world: app.planets[wanted] ? wanted : app.world });
+  }
   drawPractice();
   new ResizeObserver(() => { rewardField = null; drawPractice(); drawTrace(); }).observe(document.querySelector(".cards"));
 }

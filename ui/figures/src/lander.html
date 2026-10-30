@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lunar lander</title><link rel="icon" href="data:,"></head><body>
+<script src="core.js"></script>
+<script>
+/* PerfectLand's lunar lander, as a Colorfigure: a hop test on a landing pad.
+
+   HOW A REAL LANDER LANDS (the buttons follow these steps)
+   1. Propellant: fuel and oxidizer sit in separate tanks. Helium from a small high-pressure tank pushes them out,
+      so no pumps are needed: helium tank -> regulator -> top of each propellant tank -> propellant out of the
+      bottom -> main valve -> descent engine. The two liquids ignite on contact (hypergolic), so the engine starts
+      the moment the valve opens, and it can throttle.
+   2. Braking: gravity pulls the lander down; the engine, under the middle, pushes it up. Burning harder than the
+      lander's weight slows the fall. The radar altimeter under the hull measures the height, the gyro (IMU) the
+      tilt and turn, and the flight computer turns those numbers into engine commands 50 times a second
+      (in PerfectLand, a neural network that taught itself to land).
+   3. Steering: four thruster quads (RCS) on the corners puff small jets of gas sideways; each has its own tank.
+   4. Touchdown: probes under the footpads touch first ("contact light"); the engine is shut down ("engine stop")
+      and the lander drops the last few centimeters. Each leg's main strut has a shock absorber (crushable
+      honeycomb on Apollo) that soaks up the bump. Too fast and the legs can't take it.
+   5. On the ground: a fuel cart on the pad refuels the tanks through a fill port.
+
+   PARTS (each fixed to something):
+   HULL      descent stage (gold foil over the tank bay) . avionics deck on top . solar panels on the side facets .
+             orange band . PerfectLand mark . hazard cameras on the deck front . high-gain antenna on a mast
+   PROPULSION fuel tank, oxidizer tank (on the descent stage floor) . helium tank . regulator . feed lines .
+             main valve on the engine mount . gimbal ring . descent engine (bell)
+   STEERING  RCS tank on the deck . RCS lines . 4 thruster quads on booms at the deck corners
+   SENSING   radar altimeter under the hull . gyro (IMU) on the flight computer . flight computer with the
+             network . battery . wiring computer -> valve, computer -> radar
+   LANDING   4 legs: main strut (outer tube + shock absorber piston) hinged high on the hull, secondary strut
+             from the hull's lower corner to the strut, footpad, contact probe
+   GROUND    regolith board . landing pad with target ring . craters, rocks . fuel cart with hose
+
+   Units: about 1 unit per cm. The lander is ~1.1 m tall and its legs span ~1.6 m, close to the simulator's
+   lander (1.13 m hull). x = depth (front at +x), y = width (+y goes viewer-left), z = up. */
+
+const BW = 200, BD = 200, BH = 4;                          // the regolith board, and its top
+const PC = [100, 100];                                     // pad centre
+const PAD_R = 52, TOP = 80;                               // pad radius; hop height
+const REG = { l:'#e3ddcf', m:'#c9c1b0', d:'#9c9483' };      // regolith
+const GOLD = { l:'#f7d264', m:'#d9a62e', d:'#7a5a17' };     // foil
+const FOIL_LINE = '#a87b1c';
+const ENG = { l:'#7c8389', m:'#5c6369', d:'#3b4146' };
+const STRUT = { l:'#eef0f0', m:'#c6ccce', d:'#8f989b' };
+const PISTON = { l:'#fbfbfb', m:'#dde3e6', d:'#a9b2b6' };
+const PANEL = '#26357a', PANEL_LINE = '#5b6fc0', SIGNAL = '#eb6834', PADBLUE = '#3987e5';
+const TANKF = { l:'#f2b35a', m:'#d9923b', d:'#9a5d1c' }, TANKO = { l:'#8ec4f0', m:'#5e9fd6', d:'#2d5f8f' };
+const G = 40, THRUST = 80, RCS_A = 30;                      // units/s²: gravity, full engine, side thrusters
+const SAFE = 45, PROBE = 10;                                // touchdown limit (units/s); probe length
+
+let lx = 0, ly = 0, lz = 0, bdz = 0;                        // lander origin (feet) and hull drop from the shocks
+const LP = (x, y, z) => [lx + x, ly + y, lz + z];
+const RAD = Math.PI / 180;
+const ring8 = (r, z) => Array.from({ length: 8 }, (_, i) => { const a = (22.5 + 45 * i) * RAD; return LP(r * Math.cos(a), r * Math.sin(a), z); });
+const ringN = (c, r, n = 16) => Array.from({ length: n }, (_, i) => { const a = i / n * 2 * Math.PI; return [c[0] + r * Math.cos(a), c[1] + r * Math.sin(a), c[2]]; });
+const ringY = (c, r, n = 10) => Array.from({ length: n }, (_, i) => { const a = i / n * 2 * Math.PI; return [c[0] + r * Math.cos(a), c[1], c[2] + r * Math.sin(a)]; });
+const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const bxOf = pts => [[0, 1, 2].map(i => Math.min(...pts.map(p => p[i])) - .5), [0, 1, 2].map(i => Math.max(...pts.map(p => p[i])) + .5)];
+// a point on facet i of a lofted octagon (between rings A and B): s along the facet, t up it
+const facetPt = (A, B, i, s, t) => lerp3(lerp3(A[i], A[(i + 1) % 8], s), lerp3(B[i], B[(i + 1) % 8], s), t);
+const facetN = (A, B, i) => { const n = norm(cross(sub(A[(i + 1) % 8], A[i]), sub(B[i], A[i]))); const c = avg([A[i], A[(i + 1) % 8], B[i]]);
+  return dot(n, sub(c, LP(0, 0, c[2] - lz))) < 0 ? n.map(v => -v) : n; };
+const quad = (A, B, i, s0, s1, t0, t1) => [facetPt(A, B, i, s0, t0), facetPt(A, B, i, s1, t0), facetPt(A, B, i, s1, t1), facetPt(A, B, i, s0, t1)];
+// facet i spans angles 22.5+45i .. 67.5+45i, so its outward normal points at 45+45i degrees
+const FACET = a => ((Math.round((a - 45) / 45) % 8) + 8) % 8;
+
+// a tube or wire from port to port, in short pieces so it sorts with the solids
+const tube = (pts, col, w = .7) => { const d = pd(pts, false);
+  return { box: bxOf(pts), svg: `<path d="${d}" fill="none" stroke="${INK}" stroke-width="${f(2 * w + 1)}" stroke-linejoin="round" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${col}" stroke-width="${f(2 * w)}" stroke-linejoin="round" stroke-linecap="round"/>` }; };
+const flow = (pts, col, t, w = .7) => { const d = pd(pts, false);
+  return `<path d="${d}" fill="none" stroke="${col}" stroke-width="${f(2 * w)}" stroke-dasharray="${f(3 * INK_K)} ${f(4 * INK_K)}" stroke-dashoffset="${f(-t * 28 * INK_K)}" stroke-linecap="round"/>`; };
+
+/* ---------- the board: regolith, the pad, craters ---------- */
+function ground(st){
+  let s = board(0, 0, BW, BD, BH, 8, REG);
+  const z = BH + .06;
+  s += fill(pd(on(PZ(z), ellUV(PC[0], PC[1], PAD_R, PAD_R, 40))), '#b3ab9a') + ink(pd(on(PZ(z), ellUV(PC[0], PC[1], PAD_R, PAD_R, 40))), 1.2);
+  // target ring: orange dashes, a centre cross
+  for (let i = 0; i < 16; i++) if (i % 2 === 0){ const a0 = i / 16 * 360, a1 = (i + 1) / 16 * 360;
+    const outer = arcUV(PC[0], PC[1], PAD_R - 6, a0, a1, 4), inner = arcUV(PC[0], PC[1], PAD_R - 10, a1, a0, 4);
+    s += shape(on(PZ(z + .02), [...outer, ...inner]), SIGNAL, .6); }
+  s += shape(on(PZ(z + .02), rectUV(PC[0] - 14, PC[1] - 2, PC[0] + 14, PC[1] + 2)), '#efe9db', .6);
+  s += shape(on(PZ(z + .02), rectUV(PC[0] - 2, PC[1] - 14, PC[0] + 2, PC[1] + 14)), '#efe9db', .6);
+  // craters
+  for (const [cx, cy, r] of [[30, 40, 13], [168, 34, 9], [40, 170, 10], [24, 110, 6]]){
+    s += fill(pd(on(PZ(z), ellUV(cx, cy, r, r, 24))), REG.d) + fill(pd(on(PZ(z + .01), ellUV(cx + r * .18, cy + r * .18, r * .78, r * .78, 24))), REG.m)
+      + ink(pd(on(PZ(z), ellUV(cx, cy, r, r, 24))), .9); }
+  // the plume's glow and dust on the pad
+  const hit = plumeReach(st);
+  if (hit.glow > .02){ const gp = on(PZ(z + .05), ellUV(PC[0], PC[1] + st.y, 18 + 26 * hit.glow, 18 + 26 * hit.glow, 28));
+    s += fill(pd(gp), '#ffb15a', `opacity="${f(.55 * hit.glow)}"`); }
+  return s;
+}
+function rocks(){
+  return [[22, 76, 5], [178, 128, 4], [60, 22, 3.5], [120, 186, 3]].map(([x, y, r]) => ({ box: [[x - r, y - r, BH], [x + r, y + r, BH + r * 1.2]],
+    svg: loft(on(PZ(BH), ellUV(x, y, r, r * .8, 9)), on(PZ(BH + r * 1.2), ellUV(x + .5, y, r * .45, r * .35, 9)), n => tone(n, REG))
+      + fill(pd(on(PZ(BH + r * 1.2), ellUV(x + .5, y, r * .45, r * .35, 9))), REG.l) + hullInk([...on(PZ(BH), ellUV(x, y, r, r * .8, 9)), ...on(PZ(BH + r * 1.2), ellUV(x + .5, y, r * .45, r * .35, 9))], 1.1) }));
+}
+
+/* ---------- the fuel cart and its hose ---------- */
+const CART = [150, 156, 186, 190];      // x0, y0, x1, y1
+function cart(st){
+  const [x0, y0, x1, y1] = CART, z0 = BH + 7, items = [];
+  const body = box(x0, y0, z0, x1, y1, z0 + 14, PALS.mint, tone, 1.1)
+    + (facing([1, 0, 0]) ? tx(x1 + .3, (y0 + y1) / 2, z0 + 6, 'FUEL', 4.4, INK, 800) : '')
+    + cyl(x0 + 10, y0 + 9, z0 + 14, z0 + 30, 7, TANKF, toneI, 1) + cyl(x0 + 26, y0 + 9, z0 + 14, z0 + 30, 7, TANKO, toneI, 1)
+    + box(x0 + 2, y1 - 9, z0 + 14, x1 - 2, y1 - 3, z0 + 22, METAL, toneI, .8);
+  items.push({ box: [[x0, y0, z0], [x1, y1, z0 + 30]], svg: body });
+  for (const x of [x0 + 7, x1 - 7]) for (const y of [y0 - 1, y1 + 1]){
+    const dy = y < (y0 + y1) / 2 ? -2.5 : 2.5;
+    items.push({ box: [[x - 6, Math.min(y, y + dy), BH], [x + 6, Math.max(y, y + dy), BH + 12]], svg: rod([x, y, BH + 6], [x, y + dy, BH + 6], 5.5, DARK, toneI, 1) }); }
+  // the hose: off the cart's reel, across the regolith, up to the lander's fill port
+  if (st.hose > 0){ const port = LP(30, 30, 37 + bdz), from = [x0 + 3, y1 - 6, z0 + 18];
+    const mid1 = [x0 - 14, y0 - 4, BH + 1], end = lerp3(mid1, port, st.hose);
+    items.push(tube([from, [x0 - 4, y1 - 6, BH + 2], mid1], '#2b2b28', 1.1), tube([mid1, end], '#2b2b28', 1.1)); }
+  return items;
+}
+
+/* ---------- the lander ---------- */
+const DS = [34, 64], AV = [64, 96];                         // descent stage, avionics deck: z ranges (feet at 0)
+const R_DS = 46, R_AV = [38, 30];
+const CORNERS = [[1, 1], [1, -1], [-1, 1], [-1, -1]];          // thruster quads, between the legs
+const LEGS = [[1, 0], [0, 1], [-1, 0], [0, -1]];               // legs on the axes, as on Apollo's lander
+
+function legs(st){
+  const crashed = st.phase === 'crashed';
+  return LEGS.map(([cx, cy], i) => {
+    const u = [cx, cy];
+    const reach = crashed ? 86 + (i === 1 ? 10 : 0) : 78;
+    const at = (r, z) => LP(u[0] * r, u[1] * r, z);
+    const hinge = at(44, 58 + bdz), low = at(46, 37 + bdz), foot = at(reach, 2.4);
+    const mid = lerp3(hinge, foot, .55);                     // the outer tube ends here; the piston slides out of it
+    let s = rod(low, lerp3(hinge, foot, .7), 1.4, STRUT, toneI, .7);              // secondary strut
+    s += rod(hinge, mid, 3.1, STRUT, toneI, 1) + rod(mid, foot, 2, PISTON, toneI, .8);   // main strut + shock absorber
+    s += cyl(foot[0], foot[1], lz, lz + 2.4, 8, STRUT, toneI, 1, 18);             // footpad
+    // contact probe: hangs under the pad in flight, drags flat once it touches
+    if (!crashed){ const tip = [foot[0] + u[0] * 2, foot[1] + u[1] * 2, lz - PROBE];
+      const ground = BH + .3;
+      if (tip[2] >= ground) s += rod([foot[0], foot[1], lz], tip, .6, METAL, toneI, .5);
+      else { const down = Math.max(0, lz - ground), flat = Math.sqrt(Math.max(0, PROBE * PROBE - down * down));
+        s += rod([foot[0], foot[1], lz], [foot[0] + u[0] * flat, foot[1] + u[1] * flat, ground], .6, METAL, toneI, .5); } }
+    const lamp = st.contact ? PADBLUE : '#3a3632';
+    s += fill(pd(on(PZ(lz + 2.5), ellUV(foot[0], foot[1], 2.4, 2.4, 10))), lamp);
+    const pts = [hinge, low, foot, [foot[0] + 9, foot[1] + 9, lz], [foot[0] - 9, foot[1] - 9, lz - PROBE]];
+    return { box: bxOf(pts), svg: s, foot, hinge };
+  });
+}
+
+function landerHull(st, m){
+  const A = ring8(R_DS, DS[0] + bdz), B = ring8(R_DS, DS[1] + bdz);
+  const C = ring8(R_AV[0], AV[0] + bdz), D2 = ring8(R_AV[1], AV[1] + bdz);
+  let s = loft(A, B, n => tone(n, GOLD));
+  // foil crinkles and the solar panels / mark on the facets that face us
+  for (let i = 0; i < 8; i++){ const n = facetN(A, B, i); if (!facing(n)) continue;
+    const ang = 45 + 45 * i;
+    if (ang % 90 === 45){
+      s += shape(quad(A, B, i, .1, .9, .14, .86), PANEL, 1);
+      let gl = ''; for (const t of [.38, .62]) gl += pd([facetPt(A, B, i, .1, t), facetPt(A, B, i, .9, t)], false);
+      for (const q of [.3, .5, .7]) gl += pd([facetPt(A, B, i, q, .14), facetPt(A, B, i, q, .86)], false);
+      s += `<path d="${gl}" fill="none" stroke="${PANEL_LINE}" stroke-width=".7"/>`;
+    } else {
+      let cr = '';
+      for (const [s0, t0, s1, t1] of [[.15, .7, .38, .78], [.55, .3, .8, .22], [.25, .25, .42, .4], [.62, .7, .85, .62]])
+        cr += pd([facetPt(A, B, i, s0, t0), facetPt(A, B, i, (s0 + s1) / 2, (t0 + t1) / 2 + .05), facetPt(A, B, i, s1, t1)], false);
+      s += `<path d="${cr}" fill="none" stroke="${FOIL_LINE}" stroke-width=".7" stroke-linecap="round"/>`;
+    }
+  }
+  // orange band round the descent stage, just under its top
+  const b0 = ring8(R_DS + .25, DS[1] - 7 + bdz), b1 = ring8(R_DS + .25, DS[1] - 4 + bdz);
+  s += loft(b0, b1, n => tone(n, matOf(SIGNAL)));
+  s += fill(pd(B), GOLD.l) + ink(pd(B), 1);                                         // the descent stage's top deck
+  // avionics deck
+  s += loft(C, D2, n => tone(n, m));
+  for (let i = 0; i < 8; i++){ const n = facetN(C, D2, i); if (!facing(n)) continue;
+    const ang = 45 + 45 * i;
+    s += ink(pd(quad(C, D2, i, .08, .92, .1, .9)), .6);                              // panel seams
+    if (i === 0){                                                                    // front: the mark, low on the deck
+      const o = facetPt(C, D2, i, .5, .2), U3 = norm(sub(C[0], C[1])), V3 = norm(sub(C[0], D2[0]));
+      s += `<text transform="${txM(P(...o), Dv(...U3), Dv(...V3))}" font-size="4.6" fill="${INK}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="800" letter-spacing=".06em">PERFECTLAND</text>`;
+    }
+    if (i === 7){                                                                    // front: two hazard cameras
+      for (const sc of [.32, .68]){ const c = facetPt(C, D2, i, sc, .55);
+        const lens = Array.from({ length: 12 }, (_, k) => { const a = k / 12 * 2 * Math.PI; return [c[0] + .3, c[1] + 3.2 * Math.cos(a), c[2] + 3.2 * Math.sin(a)]; });
+        s += shape(lens, '#1d2a26', .8) + fill(pd(lens.map(p => [p[0] + .1, c[1] + (p[1] - c[1]) * .4 - 1, c[2] + (p[2] - c[2]) * .4 + 1])), '#8af0ae', 'opacity=".55"'); }
+    }
+  }
+  s += fill(pd(D2), m.l) + ink(pd(D2), 1.1);
+  // hatch on top
+  s += cyl(lx - 6, ly + 6, lz + AV[1] + bdz, lz + AV[1] + 3 + bdz, 9, METAL, toneI, .9, 18);
+  s += hullInk([...A, ...B], 2.6) + hullInk([...C, ...D2], 2.4);
+  return { svg: s, A, B, C, D: D2 };
+}
+
+// thruster quads on short booms at the deck's corners; puffs when the matching side fires
+function quads(st){
+  const z = 89 + bdz, out = [];
+  for (const [cx, cy] of CORNERS){
+    const u = [cx / Math.SQRT2, cy / Math.SQRT2], c = LP(u[0] * 40, u[1] * 40, z), base = LP(u[0] * 31, u[1] * 31, z);
+    let s = rod(base, c, 1.2, STRUT, toneI, .7);
+    s += box(c[0] - 3.5, c[1] - 3.5, c[2] - 3.5, c[0] + 3.5, c[1] + 3.5, c[2] + 3.5, DARK, toneI, .9);
+    const nz = (d, r1 = 1.8) => rod(lerp3(c, [c[0] + d[0] * 3.5, c[1] + d[1] * 3.5, c[2] + d[2] * 3.5], 1), [c[0] + d[0] * 7, c[1] + d[1] * 7, c[2] + d[2] * 7], 1, ENG, toneI, .6, r1);
+    s += nz([0, 0, 1]) + nz([0, 0, -1]) + nz([0, cy, 0]) + nz([cx, 0, 0]);
+    // the side that fires pushes the lander the other way: rcs > 0 moves it toward +y, so the -y quads puff
+    const firing = st.rcsOut && Math.sign(st.rcsOut) === -cy;
+    if (firing){ const k = Math.abs(st.rcsOut), tip = [c[0], c[1] + cy * (12 + 10 * k), c[2]];
+      s += `<g opacity=".85">` + loft(ringY([c[0], c[1] + cy * 7, c[2]], 1.6), ringY(tip, 6 * k), () => '#ffffff') + `</g>`;
+      for (let j = 0; j < 3; j++){ const d = 8 + j * 5 + (st.t * 40 % 5);
+        s += fill(pd(Array.from({ length: 10 }, (_, k2) => { const a = k2 / 10 * 2 * Math.PI, r = 1.5 + j; return [c[0] + r * Math.cos(a), c[1] + cy * d, c[2] + r * Math.sin(a)]; })), '#f4f6f8', `opacity="${f(.7 - j * .2)}"`); }
+    }
+    out.push({ at: c, box: bxOf([[c[0] - 8, c[1] - 8, c[2] - 8], [c[0] + 8, c[1] + 8 + (firing ? 30 * cy : 0), c[2] + 8]]), svg: s });
+  }
+  return out;
+}
+
+// engine bell and gimbal ring under the hull; the bell glows as it heats
+function engine(st){
+  const throat = LP(0, 0, DS[0] + bdz), exitZ = 16 + bdz;
+  const A = ringN(LP(0, 0, exitZ), 15, 20), B = ringN(throat, 7, 20);
+  let s = cyl(lx, ly, lz + DS[0] - 3 + bdz, lz + DS[0] + bdz, 9, ENG, toneI, .9, 18);   // gimbal ring
+  s += loft(A, B, n => toneI(n, ENG));
+  if (st.heat > .02) s += `<g opacity="${f(.85 * st.heat)}">` + loft(A, B, () => mix('#ff7a2a', '#ffd27a', .3)) + `</g>`;
+  s += fill(pd(A), mix('#1a1816', '#ff6a2a', .6 * st.heat)) + ink(pd(A), 1) + hullInk([...A, ...B], 1.6);
+  return { box: [[lx - 16, ly - 16, lz + exitZ - .5], [lx + 16, ly + 16, lz + DS[0] + bdz]], svg: s };
+}
+
+// how far the plume reaches, and whether it hits the pad (for the glow and the dust)
+function plumeReach(st){
+  const len = st.m > .01 ? 26 + 34 * st.m + 3 * Math.sin(st.t * 47) : 0;
+  const exit = lz + 16 + bdz, reach = Math.min(len, exit - (BH + .3));
+  return { len, reach, exit, glow: len > 0 ? st.m * Math.max(0, 1 - (exit - BH) / 60) : 0 };
+}
+function plume(st){
+  const { len, reach, exit, glow } = plumeReach(st);
+  if (len <= 0) return null;
+  const top = [lx, ly, exit], bot = [lx, ly, exit - reach];
+  const spread = 13 + 14 * (reach / len);
+  let s = `<g opacity=".55">` + loft(ringN(top, 13, 20), ringN(bot, spread, 20), () => '#ff9a4a') + `</g>`;
+  s += `<g opacity=".9">` + loft(ringN(top, 7, 16), ringN([lx, ly, exit - reach * .6], 2.5, 16), () => '#fff1b8') + `</g>`;
+  // dust thrown sideways where the plume meets the pad
+  if (glow > .02) for (let j = 0; j < 10; j++){ const a = (j / 10) * 2 * Math.PI + j, d = 20 + ((st.t * 70 + j * 13) % 40);
+    const c = [lx + d * Math.cos(a), ly + d * Math.sin(a), BH + 1 + (d - 20) * .12];
+    s += fill(pd(on(PZ(c[2]), ellUV(c[0], c[1], 3 + d * .06, 2.4 + d * .05, 8))), mix(REG.m, '#ffffff', .2), `opacity="${f(glow * (1 - (d - 20) / 40))}"`); }
+  return { box: [[lx - 40, ly - 40, BH], [lx + 40, ly + 40, exit]], svg: s };
+}
+
+function antenna(){
+  const foot = LP(-14, -12, AV[1] + bdz), top = LP(-14, -12, AV[1] + 20 + bdz);
+  const hub = [top[0] + 2, top[1], top[2] + 2], axis = norm([1, .3, .6]);
+  const ringOn = (c, r) => { const u = norm(cross(axis, [0, 0, 1])), v = cross(axis, u);
+    return Array.from({ length: 16 }, (_, i) => { const a = i / 16 * 2 * Math.PI; return [c[0] + (u[0] * Math.cos(a) + v[0] * Math.sin(a)) * r, c[1] + (u[1] * Math.cos(a) + v[1] * Math.sin(a)) * r, c[2] + (u[2] * Math.cos(a) + v[2] * Math.sin(a)) * r]; }); };
+  const rim = ringOn([hub[0] + axis[0] * 4, hub[1] + axis[1] * 4, hub[2] + axis[2] * 4], 11), inner = ringOn(hub, 2);
+  let s = rod(foot, top, 1.2, STRUT, toneI, .8) + rod(top, hub, 1, STRUT, toneI, .7);
+  s += openShell(inner, rim, n => toneI(n, CERAMIC)) + ink(pd(rim), 1.1);
+  s += rod([hub[0] + axis[0] * 4, hub[1] + axis[1] * 4, hub[2] + axis[2] * 4], [hub[0] + axis[0] * 9, hub[1] + axis[1] * 9, hub[2] + axis[2] * 9], .6, METAL, toneI, .5);
+  return { box: bxOf([foot, ...rim]), svg: s };
+}
+
+/* ---------- see-through: the tank bay and the avionics ---------- */
+let MECH_ITEMS = [];
+function mech(st, k){
+  const parts = [], put = (b, svg) => parts.push({ box: b, svg });
+  const fl = st.fuel / 100, z0 = DS[0] + 2 + bdz, z1 = DS[1] - 3 + bdz, flowing = st.m > .02;
+  // propellant tanks: clear walls, the liquid level drops as fuel burns
+  const tank = (x, y, r, col, name) => {
+    const c = LP(x, y, 0), h = (z1 - z0) * fl;
+    let s = cyl(c[0], c[1], lz + z0, lz + z0 + Math.max(.5, h), r - 1, col, toneI, .6, 18);
+    s += `<g opacity=".38">` + loft(ringN([c[0], c[1], lz + z0], r, 18), ringN([c[0], c[1], lz + z1], r, 18), n => toneI(n, CLEAR)) + fill(pd(ringN([c[0], c[1], lz + z1], r, 18)), CLEAR.l) + `</g>`;
+    s += hullInk([...ringN([c[0], c[1], lz + z0], r, 18), ...ringN([c[0], c[1], lz + z1], r, 18)], 1.2) + ink(pd(ringN([c[0], c[1], lz + z1], r, 18)), .8);
+    put([[c[0] - r, c[1] - r, lz + z0], [c[0] + r, c[1] + r, lz + z1]], s);
+    return c;
+  };
+  const fuel = tank(14, 18, 12, TANKF), ox = tank(14, -18, 12, TANKO);
+  // helium bottle and regulator, at the back of the bay
+  const he = LP(-24, 0, 0);
+  put([[he[0] - 7, he[1] - 7, lz + z0], [he[0] + 7, he[1] + 7, lz + z0 + 22]], cyl(he[0], he[1], lz + z0, lz + z0 + 22, 7, METAL, toneI, .9, 16));
+  const reg = LP(-12, 0, z1 - 2);
+  put([[reg[0] - 3, reg[1] - 3, reg[2] - 3], [reg[0] + 3, reg[1] + 3, reg[2] + 3]], box(reg[0] - 3, reg[1] - 3, reg[2] - 3, reg[0] + 3, reg[1] + 3, reg[2] + 3, METAL, toneI, .7));
+  const valve = LP(0, 0, DS[0] + 4 + bdz);
+  put([[valve[0] - 4, valve[1] - 4, valve[2] - 2], [valve[0] + 4, valve[1] + 4, valve[2] + 3]], box(valve[0] - 4, valve[1] - 4, valve[2] - 2, valve[0] + 4, valve[1] + 4, valve[2] + 3, matOf(SIGNAL), toneI, .8));
+  // lines: helium to the tank tops, propellant from the tank bottoms to the valve
+  const heLine = [[he[0], he[1], lz + z0 + 22], [reg[0], reg[1], reg[2]]];
+  const toFuel = [[reg[0], reg[1], reg[2]], [reg[0], fuel[1], lz + z1 + 1], [fuel[0], fuel[1], lz + z1]];
+  const toOx = [[reg[0], reg[1], reg[2]], [reg[0], ox[1], lz + z1 + 1], [ox[0], ox[1], lz + z1]];
+  const fFeed = [[fuel[0], fuel[1] - 6, lz + z0 + 1], [valve[0] + 4, valve[1] + 3, valve[2]]];
+  const oFeed = [[ox[0], ox[1] + 6, lz + z0 + 1], [valve[0] + 4, valve[1] - 3, valve[2]]];
+  for (const [pts, col] of [[heLine, '#b9c4c9'], [toFuel, '#b9c4c9'], [toOx, '#b9c4c9'], [fFeed, TANKF.m], [oFeed, TANKO.m]]){
+    const t = tube(pts, col, .8); if (flowing) t.svg += flow(pts, '#ffffff', st.t, .5); parts.push(t); }
+  // radar altimeter: under the hull; its beam shows in see-through
+  const radar = LP(26, -20, DS[0] - 3 + bdz);
+  put([[radar[0] - 4, radar[1] - 4, radar[2] - 1], [radar[0] + 4, radar[1] + 4, radar[2] + 3]], box(radar[0] - 4, radar[1] - 4, radar[2] - 1, radar[0] + 4, radar[1] + 4, radar[2] + 3, DARK, toneI, .8));
+  if (st.phase === 'fly' || st.phase === 'hop'){ const g = [radar[0], radar[1], BH + .2];
+    put([[radar[0] - 1, radar[1] - 1, BH], [radar[0] + 1, radar[1] + 1, radar[2]]], `<path d="${pd([radar, g], false)}" fill="none" stroke="#43c25c" stroke-width="1.2" stroke-dasharray="${f(2 * INK_K)} ${f(3 * INK_K)}"/>`
+      + fill(pd(on(PZ(BH + .2), ellUV(g[0], g[1], 5, 5, 12))), '#43c25c', 'opacity=".45"')); }
+  // avionics deck: flight computer with the network on its screen, the gyro on top, battery, RCS tank
+  const cz0 = AV[0] + 2 + bdz;
+  const pc = LP(-12, -14, 0);
+  let comp = box(pc[0] - 9, pc[1] - 8, lz + cz0, pc[0] + 9, pc[1] + 8, lz + cz0 + 16, DARK, toneI, 1);
+  if (facing([1, 0, 0])){ const x = pc[0] + 9.3;
+    comp += shape([[x, pc[1] + 6, lz + cz0 + 3], [x, pc[1] - 6, lz + cz0 + 3], [x, pc[1] - 6, lz + cz0 + 13], [x, pc[1] + 6, lz + cz0 + 13]], '#1d2a26', .6);
+    // a tiny neural network: 3 layers of dots and their links; the links blink while it flies
+    const L = [[-4, [4.5, 7.5, 10.5]], [0, [4, 6.5, 9, 11.5]], [4, [6, 9]]];
+    let ln = '';
+    for (let a = 0; a < 2; a++) for (const z1a of L[a][1]) for (const z2 of L[a + 1][1]) ln += pd([[x + .1, pc[1] - L[a][0], lz + cz0 + z1a], [x + .1, pc[1] - L[a + 1][0], lz + cz0 + z2]], false);
+    const live = st.phase === 'fly' || st.phase === 'hop';
+    comp += `<path d="${ln}" fill="none" stroke="#8af0ae" stroke-width=".35" opacity="${live ? f(.45 + .4 * Math.abs(Math.sin(st.t * 9))) : '.25'}"/>`;
+    for (const [yy, zs] of L) for (const zz of zs) comp += fill(pd(Array.from({ length: 8 }, (_, q) => { const a = q / 8 * 2 * Math.PI; return [x + .2, pc[1] - yy + .8 * Math.cos(a), lz + cz0 + zz + .8 * Math.sin(a)]; })), '#8af0ae'); }
+  put([[pc[0] - 9, pc[1] - 8, lz + cz0], [pc[0] + 9, pc[1] + 8, lz + cz0 + 16]], comp);
+  const imu = [pc[0], pc[1], lz + cz0 + 16];
+  put([[imu[0] - 3.5, imu[1] - 3.5, imu[2]], [imu[0] + 3.5, imu[1] + 3.5, imu[2] + 6]], box(imu[0] - 3.5, imu[1] - 3.5, imu[2], imu[0] + 3.5, imu[1] + 3.5, imu[2] + 6, matOf('#e2483d'), toneI, .8));
+  const bat = LP(-14, 14, 0);
+  put([[bat[0] - 7, bat[1] - 5, lz + cz0], [bat[0] + 7, bat[1] + 5, lz + cz0 + 8]], box(bat[0] - 7, bat[1] - 5, lz + cz0, bat[0] + 7, bat[1] + 5, lz + cz0 + 8, matOf('#43c25c'), toneI, .9));
+  const rt = LP(10, 10, 0);
+  put([[rt[0] - 6, rt[1] - 6, lz + cz0], [rt[0] + 6, rt[1] + 6, lz + cz0 + 14]], cyl(rt[0], rt[1], lz + cz0, lz + cz0 + 14, 6, METAL, toneI, .9, 16));
+  // RCS lines from its tank to the four quads, wiring from the computer to the valve and the radar
+  for (const [cx, cy] of CORNERS){ const u = [cx / Math.SQRT2, cy / Math.SQRT2], q = LP(u[0] * 30, u[1] * 30, 89 + bdz);
+    const pts = [[rt[0], rt[1], lz + cz0 + 14], [rt[0], rt[1], q[2]], q];
+    const t = tube(pts, '#d7dcde', .5); if (st.rcsOut && Math.sign(st.rcsOut) === -cy) t.svg += flow(pts, '#ffffff', st.t, .35); parts.push(t); }
+  const live = st.phase === 'fly' || st.phase === 'hop';
+  parts.push(tube([[pc[0] + 6, pc[1] + 6, lz + cz0], [pc[0] + 6, pc[1] + 6, valve[2] + 4], [valve[0], valve[1] - 4, valve[2] + 3]], live ? '#ffcf4a' : '#5a5650', .45));
+  parts.push(tube([[pc[0] + 9, pc[1] - 6, lz + cz0 + 2], [radar[0] - 2, radar[1], lz + cz0 + 2], [radar[0], radar[1], radar[2] + 3]], live ? '#ffcf4a' : '#5a5650', .45));
+  // payload box on the deck's far side
+  const pl = LP(14, -14, 0);
+  put([[pl[0] - 7, pl[1] - 7, lz + cz0], [pl[0] + 7, pl[1] + 7, lz + cz0 + 10]], box(pl[0] - 7, pl[1] - 7, lz + cz0, pl[0] + 7, pl[1] + 7, lz + cz0 + 10, matOf('#f3a6bb'), toneI, .9));
+  MECH_ITEMS = [
+    { at: [fuel[0], fuel[1] + 12, lz + z0 + 10], text: 'FUEL TANK', on: flowing },
+    { at: [ox[0], ox[1] - 12, lz + z0 + 10], text: 'OXIDIZER TANK', on: flowing },
+    { at: [he[0], he[1], lz + z0 + 18], text: 'HELIUM TANK', on: flowing },
+    { at: [valve[0] + 4, valve[1], valve[2]], text: 'MAIN VALVE', on: flowing },
+    { at: [radar[0], radar[1], radar[2] - 1], text: 'RADAR ALTIMETER', on: live },
+    { at: [pc[0] + 9, pc[1], lz + cz0 + 8], text: 'FLIGHT COMPUTER (AI)', on: live },
+    { at: [imu[0], imu[1], imu[2] + 6], text: 'GYRO', on: live },
+    { at: [bat[0], bat[1] + 5, lz + cz0 + 6], text: 'BATTERY', on: live },
+    { at: [rt[0], rt[1], lz + cz0 + 12], text: 'RCS TANK', on: !!st.rcsOut },
+    { at: [pl[0], pl[1] - 7, lz + cz0 + 8], text: 'PAYLOAD', on: false },
+  ];
+  return byDepth(parts);
+}
+
+/* ---------- scene ---------- */
+function scene(st, m){
+  lx = PC[0]; ly = PC[1] + st.y; lz = BH + st.z; bdz = -(st.phase === 'crashed' ? 16 : 7 * st.comp);
+  let s = ground(st);
+  // one shadow for the lander (hull, legs, feet), on the board
+  const lg = legs(st);
+  // the hull's outline (and the feet once they're down): compact, so it reads as the lander's own shadow
+  const shp = [...ring8(R_DS, DS[0] + bdz), ...ring8(R_AV[1], AV[1] + bdz), ...(st.z < 2 ? lg.map(l => l.foot) : [])];
+  s += castShadow(shp, BH, boardTop(0, 0, BW, BD, BH, 8));
+  const k = ease(st.xr || 0);
+  const h = landerHull(st, m);
+  let body = h.svg;
+  if (k > 0){
+    const far = `<g opacity="${f(.45 * k)}">` + loft(h.A, h.B, n => mix(toneI(n.map(v => -v), GOLD), '#f2efe7', .55), true) + loft(h.C, h.D, n => mix(toneI(n.map(v => -v), m), '#f2efe7', .55), true) + `</g>`;
+    body = far + `<g opacity="${f(1 - .82 * k)}">${body}</g><g opacity="${f(k)}">${mech(st, k)}</g>`
+      + `<g opacity="${f(.6 * k)}">` + hullInk([...h.A, ...h.B], 2.6) + hullInk([...h.C, ...h.D], 2.4) + `</g>`;
+  }
+  const items = [
+    ...rocks(), ...cart(st),
+    ...lg.map(l => ({ box: l.box, svg: l.svg })),
+    { box: [[lx - R_DS + 1, ly - R_DS + 1, lz + DS[0] + bdz], [lx + R_DS - 1, ly + R_DS - 1, lz + AV[1] + 3 + bdz]], svg: body },
+    engine(st), plume(st), antenna(), ...quads(st),
+  ];
+  s += byDepth(items);
+  if (st.phase === 'crashed') for (let j = 0; j < 5; j++){ const c = LP(-10 + j * 6, 8 - j * 4, 70 + j * 9 + (st.t * 12 % 9));
+    s += fill(pd(Array.from({ length: 12 }, (_, q) => { const a = q / 12 * 2 * Math.PI, r = 5 + j * 1.6; return [c[0], c[1] + r * Math.cos(a), c[2] + r * Math.sin(a)]; })), '#6a6a64', `opacity="${f(.5 - j * .07)}"`); }
+  // labels
+  const B = [0, BW, 0, BD, 0, BH + TOP + 125];
+  if (k > .6) s += xrCallouts(MECH_ITEMS, B);
+  else {
+    const f0 = lg[0].foot, h0 = lg[0].hinge;
+    s += xrCallouts([
+      { at: [lx, ly, lz + 18 + bdz], text: 'DESCENT ENGINE', on: st.m > .02 },
+      { at: LP(28, 28, 89 + bdz), text: 'RCS THRUSTERS', on: !!st.rcsOut },
+      { at: lerp3(h0, f0, .78), text: 'SHOCK ABSORBER', on: st.comp > .05 },
+      { at: [f0[0], f0[1], lz + 1], text: 'FOOTPAD', on: st.z < 1 },
+      { at: [f0[0] + 2, f0[1] + 2, lz - PROBE / 2], text: 'CONTACT PROBE', on: st.contact },
+      { at: LP(-14, -12, AV[1] + 18 + bdz), text: 'ANTENNA', on: false },
+      { at: LP(31, 31, 49 + bdz), text: 'SOLAR PANEL', on: false },
+      { at: [CART[2], (CART[1] + CART[3]) / 2, BH + 14], text: 'FUEL CART', on: st.hose > 0 },
+    ], B);
+  }
+  return s;
+}
+const caption = st => st.phase === 'fly' || st.phase === 'hop'
+  ? 'Helium pushes fuel and oxidizer from their tanks through the main valve into the engine, where they ignite on contact. The radar measures the height; the flight computer decides how hard to burn.'
+  : 'Inside the gold foil: fuel and oxidizer tanks, the helium that pushes them, the main valve over the engine. On the deck: the flight computer (where PerfectLand\'s AI pilot lives), its gyro, a battery and the steering thrusters\' tank.';
+
+/* ---------- behaviour ---------- */
+const keys = { left: false, right: false, thrust: false };
+let ui, looping = false;
+const fresh = () => ({ phase: 'landed', z: 0, vz: 0, y: 0, vy: 0, m: 0, rcsOut: 0, fuel: 100, heat: 0, comp: 0, compV: 0,
+  contact: true, auto: false, hose: 0, refuel: 0, t: 0, said: '', touch: null });
+const st = fresh();
+function kick(){
+  if (looping) return; looping = true;
+  ui.animate(dt => { step(dt); const more = st.phase === 'hop' || st.phase === 'fly' || st.heat > .01 || Math.abs(st.comp) > .005
+    || Math.abs(st.compV) > .01 || st.refuel > 0 || st.hose > 0 && st.refuel === 0 && st.hoseOut || st.phase === 'crashed' && st.t - st.crashAt < 8 || st.m > .01 || keys.left || keys.right || keys.thrust;
+    if (!more) looping = false; return more; });
+}
+function step(dt){
+  st.t += dt;
+  let main = 0, rcs = 0;
+  if (st.phase === 'hop'){
+    const want = Math.max(0, Math.min(45, 1.2 * (TOP - st.z)));
+    main = Math.max(0, Math.min(1, .5 + (want - st.vz) * .06));
+    if (st.z > TOP - 2 && Math.abs(st.vz) < 8){ st.phase = 'fly'; st.vy = st.gust; ui.flash(st.auto ? 'Autopilot has it: watch it come down' : 'Your turn! Hold THRUST to slow the fall, the arrows to steer', 3000); }
+  } else if (st.phase === 'fly'){
+    if (st.auto){
+      const want = -(4 + .3 * st.z);
+      main = Math.max(0, Math.min(1, .5 + (want - st.vz) * .07));
+      const wantY = Math.max(-25, Math.min(25, -.8 * st.y));
+      rcs = Math.abs(wantY - st.vy) > 3 ? Math.sign(wantY - st.vy) : 0;
+    } else { main = keys.thrust ? 1 : 0; rcs = (keys.left ? 1 : 0) - (keys.right ? 1 : 0); }
+    if (st.contact) main = 0;                                                      // engine stop at contact light
+  }
+  if (st.fuel <= 0){ if (main || rcs){ if (st.said !== 'empty'){ st.said = 'empty'; ui.flash('Out of fuel! Refuel at the cart after you land'); } } main = 0; rcs = 0; }
+  st.m += (main - st.m) * Math.min(1, dt * 14);
+  st.rcsOut = rcs;
+  st.heat = Math.max(0, Math.min(1, st.heat + (st.m > .05 ? dt * .5 : -dt * .25)));
+  if (st.phase === 'hop' || st.phase === 'fly'){
+    st.fuel = Math.max(0, st.fuel - (main * 6 + Math.abs(rcs) * 2) * dt);
+    st.vz += (-G + THRUST * st.m) * dt; st.vy += RCS_A * rcs * dt;
+    st.z += st.vz * dt; st.y += st.vy * dt;
+    if (st.z > TOP + 25){ st.z = TOP + 25; st.vz = Math.min(0, st.vz); }
+    if (Math.abs(st.y) > 60){ st.y = Math.sign(st.y) * 60; st.vy = 0; }
+    if (st.phase === 'fly' && !st.contact && st.z < PROBE && st.vz < 0){ st.contact = true; ui.flash('Contact light! Engine stop', 1500); }
+    if (st.z <= 0 && st.phase === 'fly'){
+      const speed = -st.vz, off = Math.abs(st.y) > PAD_R - 8;
+      st.z = 0; st.vz = st.vy = 0; st.m = 0; st.auto = false;
+      if (speed > SAFE){ st.phase = 'crashed'; st.comp = 0; st.crashAt = st.t; ui.flash(`Crash! ${(speed / 100).toFixed(2)} m/s: the legs can only take ${(SAFE / 100).toFixed(2)}. Reset the lander`, 3600); }
+      else { st.phase = 'landed'; st.compV = speed * .25; st.touch = speed;
+        ui.flash(off ? `Landed ${((Math.abs(st.y) - PAD_R + 8) / 100).toFixed(2)} m off the pad, at ${(speed / 100).toFixed(2)} m/s`
+          : speed < 32 ? `Soft landing! ${(speed / 100).toFixed(2)} m/s, right on the pad` : `Touchdown at ${(speed / 100).toFixed(2)} m/s: a firm one, but the legs held`, 3400); }
+    }
+  }
+  // the shock absorbers: a damped spring around zero
+  st.compV += (-st.comp * 140 - st.compV * 9) * dt; st.comp += st.compV * dt;
+  if (st.comp < 0){ st.comp = 0; st.compV = Math.max(0, st.compV); }
+  if (st.phase !== 'landed'){ st.comp = 0; st.compV = 0; }
+  st.comp = Math.max(0, Math.min(1, st.comp));
+  // refuelling: the hose reaches the port, then the tanks fill
+  if (st.refuel > 0){ st.hose = Math.min(1, st.hose + dt * 1.6);
+    if (st.hose >= 1){ st.fuel = Math.min(100, st.fuel + dt * 60); if (st.fuel >= 100){ st.refuel = 0; st.hoseOut = true; ui.flash('Tanks full'); } } }
+  else if (st.hoseOut){ st.hose = Math.max(0, st.hose - dt * 1.6); if (st.hose <= 0) st.hoseOut = false; }
+}
+function hop(){
+  if (st.phase === 'crashed') return ui.flash('Reset the lander first');
+  if (st.phase !== 'landed') return ui.flash('Already flying');
+  if (st.refuel > 0) return ui.flash('Still refuelling');
+  if (st.fuel < 30) return ui.flash('Not enough fuel for a hop: refuel at the cart');
+  if (st.hose > 0) { st.hoseOut = true; }
+  st.phase = 'hop'; st.contact = false; st.said = ''; st.gust = (st.hops = (st.hops || 0) + 1) % 2 ? 11 : -10;
+  ui.flash('Main valve open: the engine lights and the lander climbs', 1800); kick();
+}
+function autopilot(){
+  if (st.phase === 'landed' || st.phase === 'crashed') { st.auto = true; return hop(); }
+  st.auto = !st.auto; ui.flash(st.auto ? 'Autopilot on' : 'Autopilot off: your controls'); kick();
+}
+function refuel(){
+  if (st.phase === 'hop' || st.phase === 'fly') return ui.flash('Land first: the cart can\'t reach a flying lander');
+  if (st.phase === 'crashed') return ui.flash('Reset the lander first');
+  if (Math.abs(st.y) > PAD_R - 8) return ui.flash('Too far from the cart: land on the pad');
+  if (st.fuel >= 99.5) return ui.flash('The tanks are already full');
+  st.refuel = 1; st.hoseOut = false; ui.flash('Hose connected: fuel and oxidizer flowing in'); kick();
+}
+function reset(){ Object.assign(st, fresh(), { xr: st.xr, xrT: st.xrT, pal: st.pal, hops: st.hops }); for (const kk in keys) keys[kk] = false; ui.flash('A fresh lander on the pad, tanks full'); }
+
+ui = mountFigure({
+  fig: '01', title: 'Lunar lander', turn: 'full', credit: true,
+  size: [BW, BD, BH + TOP + 125], center: [BW / 2, BD / 2], palette: 'tomato',
+  state: st, scene,
+  stats: s => [
+    { label: 'Altitude', value: `${(s.z / 100).toFixed(2)} m` },
+    { label: 'Speed', value: `${(Math.hypot(s.vz, s.vy) / 100).toFixed(2)} m/s`, small: true },
+    { label: 'Fuel', value: `${Math.round(s.fuel)}%`, small: true },
+  ],
+  buttons: [
+    { label: 'Hop up 1 m', onClick: () => hop() },
+    { label: 'Autopilot', onClick: () => autopilot() },
+    { label: 'Refuel', onClick: () => refuel() },
+    { label: 'Reset', onClick: () => reset() },
+  ],
+  params: (s, q) => {
+    for (const kk of ['z', 'y', 'fuel', 'm', 'heat', 'comp', 'hose']) if (q.has(kk)) s[kk] = +q.get(kk);
+    if (q.has('phase')) s.phase = q.get('phase');
+    if (q.has('rcs')) s.rcsOut = +q.get('rcs');
+    if (q.get('contact') === '0') s.contact = false;
+  },
+});
+window.GAME_KEYS = true;   // the arrows and space fly the lander; dragging still turns the view
+const KEY = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'thrust', ' ': 'thrust' };
+addEventListener('keydown', e => { const kk = KEY[e.key]; if (!kk) return; e.preventDefault();
+  if (st.phase !== 'fly'){ if (kk === 'thrust' && st.phase === 'landed' && !e.repeat) hop(); return; }
+  if (st.auto){ st.auto = false; ui.flash('Autopilot off: your controls'); }
+  keys[kk] = true; kick(); });
+addEventListener('keyup', e => { const kk = KEY[e.key]; if (kk) keys[kk] = false; });
+addEventListener('blur', () => { for (const kk in keys) keys[kk] = false; });
+mountKeypad({ rows: 1, hub: [1, 0], action: 'THRUST', keys: [
+  { key: 'ArrowLeft', glyph: '◀', name: 'Steer left', at: [0, 0] }, { key: 'ArrowRight', glyph: '▶', name: 'Steer right', at: [2, 0] } ] });
+xrMount(() => ui, caption);
+// inside a page (PerfectLand's game and mission control show this figure in a frame): tell it how tall we are
+if (window.parent !== window){
+  // the content's real bottom (scrollHeight never drops below the frame's own height, so the frame could only grow)
+  const post = () => window.parent.postMessage({ figure: 'lander', height: Math.ceil(Math.max(...[...document.body.children].map(e => e.getBoundingClientRect().bottom + scrollY)) + 28) }, '*');
+  new ResizeObserver(post).observe(document.body); addEventListener('load', post);
+}
+</script></body></html>

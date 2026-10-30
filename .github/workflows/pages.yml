@@ -1,0 +1,42 @@
+# Publishes the browser game (ui/play.html) to GitHub Pages. It needs no server: physics,
+# network and 3D all run in the visitor's browser. One-time setup in the repository:
+# Settings > Pages > Build and deployment > Source: GitHub Actions.
+name: Game on GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["ui/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble the game
+        run: |
+          mkdir _site
+          cp ui/play.html _site/index.html
+          cp ui/play.js ui/sim.js ui/nn.js ui/stage.js ui/worlds.js ui/lander.js ui/sound.js ui/annunciator.js ui/specs.js ui/nav.js ui/styles.css _site/
+          cp -r ui/figures _site/figures && rm -rf _site/figures/src _site/figures/build.py
+          cp -r ui/data _site/data
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

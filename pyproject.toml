@@ -1,0 +1,5 @@
+# PerfectLand runs from a checkout (python app.py); this file only configures the tests.
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

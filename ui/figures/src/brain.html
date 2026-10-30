@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The AI pilot's flight computer</title><link rel="icon" href="data:,">
+<script type="importmap">{ "imports": { "planck": "https://cdn.jsdelivr.net/npm/planck@1.5.0/dist/planck.mjs" } }</script>
+</head><body>
+<script src="core.js"></script>
+<script>
+/* PerfectLand's AI pilot as a machine you can poke: the flight computer that lands the rocket.
+
+   HOW IT REALLY WORKS (this figure runs the real trained network, ui/data/pilots/universal.json)
+   1. Eight sensor readings come in, 50 times a second: how far left or right of the pad, how high, how fast
+      sideways, how fast up or down, how tilted, how fast it is turning, and whether each foot touches.
+   2. Layer 1: 64 neurons. Each multiplies all 8 readings by its own weights, adds them up, and squashes the
+      total into -1..1 (tanh). That is its "glow": orange when positive, blue when negative.
+   3. Layer 2: 64 more neurons do the same with layer 1's 64 glows.
+   4. Output: 4 scores, one per choice (nothing, left engine, main engine, right engine). The highest wins and
+      its relay closes; the score's share is how sure the network is.
+   Nobody wrote these weights: training (PPO) nudged them over 11.5 million practice frames.
+
+   PARTS (each fixed to something):
+   CASE      rounded aluminium case on rubber feet . glass lid over the circuit board . vents . nameplate
+   FRONT     8 sensor dials with needles . screen showing the lander . 4 engine lamps with confidence bars
+   INSIDE    circuit board on standoffs . sensor pins . layer 1 (8 x 8 LEDs) . layer 2 (8 x 8 LEDs) . output pins .
+             ribbon traces between them . relay block (4 relays) . power supply . cooling fan . wiring harness
+             from the dials to the board . engine cable out of the back to the lander's valves */
+
+const W = 56, D = 124, H = 32;                         // case: depth (x), width (y), height (z)
+const OUT = rrUV(0, 0, D, H, 5);
+const PCB = { l:'#3f8f5a', m:'#2f7347', d:'#1c4a2c' };
+const DIAL = { l:'#fbfaf3', m:'#e3e0d2', d:'#bdb8a6' };
+const LED_OFF = '#21302a', HOT = '#ff8a3d', COLD = '#5ab0ff';
+const NAMES = ['LEFT/RIGHT', 'HEIGHT', 'SIDEWAYS', 'UP/DOWN', 'TILT', 'SPIN', 'RIGHT FOOT', 'LEFT FOOT'];
+const CHOICES = ['NOTHING', 'LEFT ENGINE', 'MAIN ENGINE', 'RIGHT ENGINE'];
+// each dial clicks through these readings (the simulator's own units)
+const STEPS = [[-.6, -.3, 0, .3, .6], [0, .15, .5, 1, 1.4], [-.6, -.3, 0, .3, .6], [-.8, -.4, -.1, 0, .2], [-.4, -.15, 0, .15, .4], [-.4, -.15, 0, .15, .4], [0, 1], [0, 1]];
+const SITUATIONS = [
+  { label: 'Falling fast', obs: [0, .9, 0, -.6, 0, 0, 0, 0] },
+  { label: 'Hovering high', obs: [0, 1.2, 0, 0, 0, 0, 0, 0] },
+  { label: 'Tilted to the left', obs: [0, .6, 0, -.15, .35, 0, 0, 0] },
+  { label: 'Drifting right', obs: [.25, .6, .45, -.15, 0, 0, 0, 0] },
+  { label: 'Far left of the pad', obs: [-.55, .8, 0, -.1, 0, 0, 0, 0] },
+  { label: 'Just touched down', obs: [0, .02, 0, -.06, 0, 0, 1, 1] },
+];
+
+// front face (x = W): local (u right, v up) in drawing units; u = 0 at the face's left edge (y = D)
+const FP = (u, v, dx = .3) => [W + dx, D - u, v];
+const fr = (u0, v0, u1, v1, r = 0, dx = .3) => (r > 0 ? rrUV(u0, v0, u1, v1, r, 4) : rectUV(u0, v0, u1, v1)).map(([u, v]) => FP(u, v, dx));
+const fc = (cu, cv, r, dx = .3, n = 18) => ellUV(cu, cv, r, r, n).map(([u, v]) => FP(u, v, dx));
+const ftx = (u, v, str, size, col = INK, weight = 800) => tx(W + .35, D - u, v, str, size, col, weight);
+const glowCol = a => a >= 0 ? mix(LED_OFF, HOT, Math.min(1, a)) : mix(LED_OFF, COLD, Math.min(1, -a));
+
+/* ---------- the network (loaded from the game's data) ---------- */
+let NET = null, forward = null, Flight = null;
+function think(st){
+  if (!NET) return;
+  const r = forward(NET, st.obs);
+  st.l1 = Array.from(r.layers[1]); st.l2 = Array.from(r.layers[2]);
+  st.probs = r.probs; st.pick = r.action;
+}
+
+/* ---------- drawing ---------- */
+function dials(st){
+  let s = '';
+  for (let i = 0; i < 8; i++){
+    const cu = 12 + (i % 4) * 12.5, cv = i < 4 ? 23 : 11;
+    const range = STEPS[i], lo = range[0], hi = range[range.length - 1];
+    const t = hi > lo ? (st.obs[i] - lo) / (hi - lo) : 0, ang = (-130 + 260 * Math.max(0, Math.min(1, t))) * Math.PI / 180;
+    let d = shape(fc(cu, cv, 4.6, .3), DIAL.l, 1.1) + ink(pd(fc(cu, cv, 3.6, .32), true), .5);
+    for (let k = 0; k <= 4; k++){ const a = (-130 + 65 * k) * Math.PI / 180;
+      d += ink(pd([FP(cu + 3 * Math.sin(a), cv + 3 * Math.cos(a), .34), FP(cu + 3.8 * Math.sin(a), cv + 3.8 * Math.cos(a), .34)], false), .5); }
+    d += `<path d="${pd([FP(cu, cv, .4), FP(cu + 3.3 * Math.sin(ang), cv + 3.3 * Math.cos(ang), .4)], false)}" fill="none" stroke="#e2483d" stroke-width="1.1" stroke-linecap="round"/>`;
+    d += fill(pd(fc(cu, cv, .7, .42, 8)), INK);
+    s += act('dial', d, `data-i="${i}"`);
+    s += ftx(cu, cv - 7.4, NAMES[i], 2.2, INK, 800);
+  }
+  return s;
+}
+function screen(st){
+  const u0 = 58, u1 = 84, v0 = 6, v1 = 27;
+  let s = shape(fr(u0 - 1.5, v0 - 1.5, u1 + 1.5, v1 + 1.5, 2), DARK.m, 1) + shape(fr(u0, v0, u1, v1, 1, .32), '#1d2a26', .8);
+  const gx = u => u0 + 2 + (u1 - u0 - 4) * u, gy = v => v0 + 3 + (v1 - v0 - 6) * v;
+  // the pad and the ground, then the lander where the readings say it is
+  s += `<path d="${pd([FP(gx(0), gy(0), .34), FP(gx(1), gy(0), .34)], false)}" fill="none" stroke="#8af0ae" stroke-width=".6"/>`;
+  s += `<path d="${pd([FP(gx(.42), gy(0), .36), FP(gx(.58), gy(0), .36)], false)}" fill="none" stroke="#8af0ae" stroke-width="1.6"/>`;
+  const o = st.obs, px = gx(.5 + Math.max(-1, Math.min(1, o[0])) * .5), py = gy(Math.max(0, Math.min(1, o[1] / 1.4)) * .92 + .04), a = o[4];
+  const rot = (du, dv) => FP(px + du * Math.cos(a) - dv * Math.sin(a), py + du * Math.sin(a) + dv * Math.cos(a), .38);
+  s += `<path d="${pd([rot(-2, 0), rot(2, 0), rot(1.4, 2.4), rot(-1.4, 2.4)])}" fill="#8af0ae"/>`;
+  s += `<path d="${pd([rot(-2, 0), rot(-3, -1.6)], false)}${pd([rot(2, 0), rot(3, -1.6)], false)}" fill="none" stroke="#8af0ae" stroke-width=".6"/>`;
+  if (st.pick === 2) s += `<path d="${pd([rot(-.6, -.2), rot(0, -2.6), rot(.6, -.2)])}" fill="${HOT}"/>`;
+  // velocity arrow
+  const vx = o[2] * 6, vy = o[3] * 6;
+  if (Math.hypot(vx, vy) > .5) s += `<path d="${pd([FP(px, py + 1.2, .38), FP(px + vx, py + 1.2 + vy, .38)], false)}" fill="none" stroke="#f4b829" stroke-width=".7" stroke-dasharray="1 .8"/>`;
+  s += ftx((u0 + u1) / 2, v1 + 2.6, 'WHAT IT SEES', 1.9, INK, 800);
+  return s;
+}
+function lamps(st){
+  let s = '';
+  for (let k = 0; k < 4; k++){
+    const v = 25 - k * 6, on = st.pick === k && NET, p = st.probs ? st.probs[k] : 0;
+    s += shape(fc(91, v, 2.3, .3, 14), on ? '#ffd27a' : '#5a5650', 1);
+    if (on) s += fill(pd(fc(91, v, 1.3, .34, 10)), '#fff8e0');
+    s += ftx(104, v + .9, CHOICES[k], 2.3, INK, on ? 800 : 600);
+    s += shape(fr(95, v - 2.6, 114, v - 1.4, 0, .32), '#cfc8b8', .4);
+    if (p > .01) s += fill(pd(fr(95, v - 2.6, 95 + 19 * p, v - 1.4, 0, .34)), on ? '#e2483d' : '#857d6e');
+  }
+  s += ftx(103, 30.2, 'ENGINES', 1.9, INK, 800);
+  return s;
+}
+// the circuit board under the glass lid: pins in, two 8 x 8 grids of neuron LEDs, pins out
+const BZ = H - 3;
+const gridAt = (cy) => Array.from({ length: 64 }, (_, i) => [10 + (i % 8) * 5.1, cy - 17.5 + Math.floor(i / 8) * 5]);
+const L1 = gridAt(D - 40), L2 = gridAt(44), PIN_IN = Array.from({ length: 8 }, (_, i) => [10 + i * 5.1, D - 12]), PIN_OUT = Array.from({ length: 4 }, (_, i) => [15 + i * 8, 12]);
+function pcbTop(st){
+  let s = shape(on(PZ(BZ), rrUV(5, 5, W - 5, D - 5, 3)), PCB.m, 1);
+  // traces between the stages, brighter where a strong signal flows
+  const tr = (a, b, w, col, op) => `<path d="${pd([[a[0], a[1], BZ + .05], [b[0], b[1], BZ + .05]], false)}" fill="none" stroke="${col}" stroke-width="${w}" opacity="${f(op)}"/>`;
+  for (let i = 0; i < 8; i++){ const sig = Math.min(1, Math.abs(st.obs[i]));
+    s += tr(PIN_IN[i], [PIN_IN[i][0], L1[i][1] + 22], .5, '#c9e7c9', .35 + .5 * sig); }
+  for (let r = 0; r < 8; r++){ const a = st.l1 ? Math.abs(st.l1[r * 8 + 7]) : 0;
+    s += tr([L1[r * 8 + 7][0], L1[r * 8 + 7][1] - 2], [L2[r * 8][0], L2[r * 8][1] + 2], .5, '#c9e7c9', .25 + .6 * a); }
+  for (let k = 0; k < 4; k++) s += tr([PIN_OUT[k][0], PIN_OUT[k][1] + 2], [PIN_OUT[k][0], L2[56][1] - 20], .5, '#c9e7c9', st.pick === k ? .95 : .3);
+  // chips, pins and the LEDs
+  for (const [x, y] of [[W / 2, D - 66], [W / 2, 66]]) s += box(x - 6, y - 3, BZ, x + 6, y + 3, BZ + 1.2, DARK, toneI, .6);
+  for (const [x, y] of PIN_IN) s += shape(on(PZ(BZ + .1), ellUV(x, y, 1, 1, 8)), '#e9e3c8', .4);
+  for (const [k, [x, y]] of PIN_OUT.entries()) s += shape(on(PZ(BZ + .1), ellUV(x, y, 1.2, 1.2, 8)), st.pick === k ? '#ffd27a' : '#e9e3c8', .4);
+  const led = (pts, acts) => pts.map(([x, y], i) => { const a = acts ? acts[i] : 0, c = glowCol(a);
+    return (Math.abs(a) > .55 ? fill(pd(on(PZ(BZ + .12), ellUV(x, y, 2.3, 2.3, 10))), c, 'opacity=".35"') : '') + shape(on(PZ(BZ + .15), ellUV(x, y, 1.35, 1.35, 10)), c, .35); }).join('');
+  s += act('board', led(L1, st.l1) + led(L2, st.l2));
+  // silkscreen labels on the board
+  s += txB(W / 2, D - 7.5, 'SENSORS IN', 2.2) + txB(W / 2, D - 63, 'LAYER 1 · 64 NEURONS', 2.2) + txB(W / 2, 63, 'LAYER 2 · 64 NEURONS', 2.2) + txB(W / 2, 7, 'ENGINES OUT', 2.2);
+  return s;
+}
+// text lying on the board, reading along y (right to left on screen means +y is the board's left)
+const txB = (x, y, str, size) => { const o = P(x, y, BZ + .2); return `<text transform="${txM(o, Dv(0, -1, 0), Dv(-1, 0, 0))}" font-size="${size}" fill="#e9f5e9" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="700" letter-spacing=".05em">${str}</text>`; };
+function glassLid(){
+  const g = on(PZ(H + .4), rrUV(4, 4, W - 4, D - 4, 3));
+  let s = fill(pd(g), CLEAR.l, 'opacity=".22"') + ink(pd(g), 1.2);
+  for (const [a, b] of [[[12, 20], [26, 44]], [[16, 70], [24, 86]]]) s += `<path d="${pd([[a[0], a[1], H + .45], [b[0], b[1], H + .45]], false)}" fill="none" stroke="#ffffff" stroke-width="1.6" opacity=".38" stroke-linecap="round"/>`;
+  return s;
+}
+
+/* ---------- see-through: the rest of the inside ---------- */
+let MECH = [];
+function mech(st, k){
+  const parts = [], put = (b, svg) => parts.push({ box: b, svg });
+  // standoffs holding the board
+  for (const [x, y] of [[8, 8], [W - 8, 8], [8, D - 8], [W - 8, D - 8]]) put([[x - 1, y - 1, 2], [x + 1, y + 1, BZ]], cyl(x, y, 2, BZ, 1, METAL, toneI, .5, 10));
+  // power supply and the cooling fan at the back
+  put([[4, 14, 2], [20, 40, 14]], box(4, 14, 2, 20, 40, 14, matOf('#f4b829'), toneI, .9) + (facing([0, 0, 1]) ? '' : ''));
+  const fc0 = [3, D - 26, 14];
+  let fan = cylX(1, 5, fc0[1], fc0[2], 10, DARK, toneI, 1, 22);
+  if (facing([1, 0, 0])) for (let b = 0; b < 5; b++){ const a = b / 5 * 2 * Math.PI + st.t * 9;
+    fan += shape([[5.2, fc0[1], fc0[2]], [5.2, fc0[1] + 8 * Math.cos(a), fc0[2] + 8 * Math.sin(a)], [5.2, fc0[1] + 8 * Math.cos(a + .5), fc0[2] + 8 * Math.sin(a + .5)]], '#857d6e', .5); }
+  put([[1, fc0[1] - 10, 4], [5.5, fc0[1] + 10, 24]], fan);
+  // relay block: one relay per choice, the chosen one closed
+  for (let i = 0; i < 4; i++){ const y = 10 + i * 7, z1 = st.pick === i ? 9 : 11;
+    put([[26, y - 2.5, 2], [34, y + 2.5, 12]], box(26, y - 2.5, 2, 34, y + 2.5, z1, matOf(st.pick === i ? '#e2483d' : '#76a0e2'), toneI, .8)); }
+  // harness from the dials to the board's input pins
+  for (let i = 0; i < 8; i++){ const cu = 12 + (i % 4) * 12.5, cv = i < 4 ? 23 : 11, y = D - cu, pin = PIN_IN[i];
+    const pts = [[W - 1, y, cv], [W - 8, y, cv], [pin[0] + 2, pin[1], 6], [pin[0], pin[1], BZ - .2]];
+    put([[pin[0] - 1, Math.min(y, pin[1]) - 1, 5], [W, Math.max(y, pin[1]) + 1, cv + 1]], `<path d="${pd(pts, false)}" fill="none" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/><path d="${pd(pts, false)}" fill="none" stroke="${['#e2483d', '#f4b829', '#43c25c', '#5a82c6'][i % 4]}" stroke-width=".8" stroke-linejoin="round"/>`); }
+  // engine cable from the relays out of the back
+  const cab = [[26, 20, 6], [6, 20, 6], [-6, 20, 6]];
+  put([[-7, 18, 4], [26, 22, 8]], `<path d="${pd(cab, false)}" fill="none" stroke="${INK}" stroke-width="3.2" stroke-linecap="round"/><path d="${pd(cab, false)}" fill="none" stroke="#3d3935" stroke-width="2" stroke-linecap="round"/>`);
+  MECH = [
+    { at: [12, 27, 14], text: 'POWER SUPPLY', on: !!NET },
+    { at: [5, fc0[1], fc0[2] + 8], text: 'COOLING FAN', on: st.mode === 'flight' },
+    { at: [30, 10 + (st.pick ?? 0) * 7, 10], text: 'RELAYS', on: st.pick != null },
+    { at: [W - 8, D - 30, 16], text: 'SENSOR WIRES', on: true },
+    { at: [-5, 20, 6], text: 'TO THE ENGINES', on: st.mode === 'flight' },
+  ];
+  return byDepth(parts);
+}
+
+/* ---------- scene ---------- */
+// the case's base is at z = 0; it stands on four rubber feet on a board below it
+const FEET = 3, BTOP = -FEET, BTH = 3;
+function boardBelow(x0, y0, x1, y1, r, mm){
+  const A = on(PZ(BTOP - BTH), rrUV(x0, y0, x1, y1, r)), B = on(PZ(BTOP), rrUV(x0, y0, x1, y1, r));
+  return loft(A, B, n => toneI(n, mm)) + fill(pd(B), mm.l) + ink(pd(B), 1) + hullInk([...A, ...B], 1.8);
+}
+function scene(st, m){
+  const FRONT = facing([1, 0, 0]), BACK = facing([-1, 0, 0]), LEFT = facing([0, 1, 0]), RIGHT = facing([0, -1, 0]);
+  const BB = [-12, -10, W + 12, D + 10];
+  let s = boardBelow(...BB, 6, BOARD);
+  s += castShadow([...on(PX(0), OUT), ...on(PX(W), OUT)], BTOP, on(PZ(BTOP), rrUV(...BB, 6)));
+  const feet = [[6, 8], [W - 6, 8], [6, D - 8], [W - 6, D - 8]].map(([x, y]) => ({ box: [[x - 3, y - 3, BTOP], [x + 3, y + 3, 0]], svg: cyl(x, y, BTOP, 0, 3, DARK, toneI, .7, 12) }));
+  let body = '';
+  if (BACK){ body += fill(pd(on(PX(0), OUT)), tone([-1, 0, 0], m));
+    body += shape(on(PX(-.2), rrUV(84, 12, 114, 26, 2)), CERAMIC.l, .9);
+    body += `<text transform="${txM(P(-.3, 99, 18.4), Dv(0, 1, 0), Dv(0, 0, -1))}" font-size="2.4" fill="${INK}" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-weight="800">PL-1 · 8 IN · 64 · 64 · 4 OUT</text>`; }
+  if (FRONT) body += fill(pd(on(PX(W), OUT)), tone([1, 0, 0], m));
+  body += extrude(OUT, 0, W, m);
+  for (const [vis2, y] of [[LEFT, D + .2], [RIGHT, -.2]]) if (vis2){ let v = ''; for (let k = 0; k < 6; k++) v += pd([[14 + k * 5.5, y, 8], [14 + k * 5.5, y, 22]], false);
+    body += `<path d="${v}" fill="none" stroke="${INK}" stroke-width="1.1" opacity=".7"/>`; }
+  if (LEFT) body += txY(W / 2, D + .3, 4.5, 'FLIGHT COMPUTER', 2.8, INK, 800);
+  if (FRONT) body += ink(pd(on(PX(W), OUT)), 2.2);
+  if (BACK) body += ink(pd(on(PX(0), OUT)), 2.2);
+  body += hullInk([...on(PX(0), OUT), ...on(PX(W), OUT)], 2.8);
+  const front = FRONT ? dials(st) + screen(st) + lamps(st) : '';
+  const top = pcbTop(st) + glassLid();
+  const k = ease(st.xr || 0);
+  const cabPts = [[0, 20, 9], [-8, 20, 7], [-16, 22, BTOP + .6], [-26, 25, BTOP + .5]];
+  const cable = { box: [[-30, 14, BTOP], [0, 28, 12]], svg: `<path d="${pd(cabPts, false)}" fill="none" stroke="${INK}" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/><path d="${pd(cabPts, false)}" fill="none" stroke="#3d3935" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`
+    + box(-30, 22, BTOP, -25, 28, BTOP + 4, matOf('#f4b829'), toneI, .8) };
+  let caseSvg = body + top + front;
+  if (k > 0) caseSvg = `<g opacity="${f(1 - .75 * k)}">${body}</g><g opacity="${f(k)}">${mech(st, k)}</g>` + top + front;
+  s += byDepth([...feet, cable, { box: [[0, 0, 0], [W, D, H]], svg: caseSvg }]);
+  const B = [-30, W, 0, D, BTOP, H];
+  if (k > .6) s += xrCallouts(MECH, B);
+  else s += xrCallouts([
+    { at: [W, D - 25, 17], text: 'SENSOR DIALS', on: st.mode === 'flight' },
+    { at: [W, D - 71, 16], text: 'SCREEN', on: st.mode === 'flight' },
+    { at: [W, D - 91, 25 - (st.pick ?? 0) * 6], text: 'ENGINE LAMPS', on: st.pick != null },
+    { at: [W / 2, D - 40, H], text: 'LAYER 1', on: !!st.l1 },
+    { at: [W / 2, 44, H], text: 'LAYER 2', on: !!st.l2 },
+  ], B);
+  return s;
+}
+
+/* ---------- behaviour ---------- */
+let ui, looping = false;
+const st = { obs: SITUATIONS[0].obs.slice(), l1: null, l2: null, probs: null, pick: null, mode: 'idle', sit: 0, t: 0, flight: null };
+function kick(){ if (looping) return; looping = true;
+  ui.animate(dt => { st.t += dt; if (st.mode === 'flight') flyStep(dt); const more = st.mode === 'flight'; if (!more) looping = false; return more; }); }
+let acc = 0;
+function flyStep(dt){
+  acc += dt;
+  while (acc >= 1 / 50 && st.flight && !st.flight.done){ acc -= 1 / 50;
+    st.obs = Array.from(st.flight.obs); think(st); st.flight.step(st.pick); }
+  if (st.flight && st.flight.done){ const fl = st.flight; st.mode = 'idle'; st.obs = Array.from(fl.obs); think(st);
+    ui.flash(fl.outcome === 'landed on pad' ? `Landed on the pad, ${fl.miss.toFixed(2)} m from the center, in ${(fl.steps / 50).toFixed(1)} s` : `This time: ${fl.outcome}`, 3200); }
+}
+async function wake(){
+  try {
+    const [nn, w] = await Promise.all([import('../nn.js'), fetch('../data/pilots/universal.json').then(r => r.json())]);
+    forward = nn.forward; NET = nn.prepare(w); think(st); ui.render();
+  } catch (e) { ui.flash('Open this page from the game to load the network', 4000); }
+}
+async function fly(){
+  if (!NET) return ui.flash('The network is still loading');
+  if (st.mode === 'flight') return ui.flash('Already flying: watch the lights');
+  try { if (!Flight) Flight = (await import('../sim.js')).Flight; } catch (e) { return ui.flash('Could not load the simulator'); }
+  st.flight = new Flight({ gravity: -10, enable_wind: false, wind_power: 15, turbulence_power: 1.5, atmosphere: 0, engine_power: 1 });
+  st.mode = 'flight'; acc = 0; ui.flash('Flying a real landing: the lights are the network thinking', 2400); kick();
+}
+
+ui = mountFigure({
+  fig: '02', title: "The AI pilot's flight computer", turn: 'full',
+  size: [W + 24, D + 20, H + 6], center: [W / 2, D / 2], palette: 'cobalt',
+  state: st, scene,
+  stats: s => [
+    { label: 'It picks', value: s.pick == null ? '…' : CHOICES[s.pick], small: true },
+    { label: 'How sure', value: s.probs ? `${Math.round(s.probs[s.pick] * 100)}%` : '…', small: true },
+  ],
+  buttons: [
+    { label: 'Situation', choices: s => SITUATIONS.map((x, i) => ({ label: x.label, current: s.sit === i && s.mode !== 'flight',
+        disabled: s.mode === 'flight', why: 'Wait for the landing to finish', onClick: (s2) => { s2.sit = i; s2.obs = x.obs.slice(); think(s2); } })) },
+    { label: 'Fly a real landing', onClick: () => fly() },
+  ],
+  acts: { dial: (s, el) => { if (s.mode === 'flight') return ui.flash('The sensors are busy: wait for the landing');
+      const i = +el.dataset.i, steps = STEPS[i], cur = steps.findIndex(v => Math.abs(v - s.obs[i]) < 1e-6);
+      s.obs[i] = steps[(cur + 1) % steps.length]; s.sit = -1; think(s); },
+    board: () => ui.flash('Each light is one neuron: orange adds up positive, blue negative') },
+  params: (s, q) => { if (q.has('sit')) { s.sit = +q.get('sit'); s.obs = SITUATIONS[s.sit].obs.slice(); } },
+});
+xrMount(() => ui, () => '');
+wake();
+if (window.parent !== window){
+  // the content's real bottom (scrollHeight never drops below the frame's own height, so the frame could only grow)
+  const post = () => window.parent.postMessage({ figure: 'brain', height: Math.ceil(Math.max(...[...document.body.children].map(e => e.getBoundingClientRect().bottom + scrollY)) + 28) }, '*');
+  new ResizeObserver(post).observe(document.body); addEventListener('load', post);
+}
+</script></body></html>

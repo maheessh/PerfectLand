@@ -1,0 +1,132 @@
+{
+  "classic": {
+    "name": "Classic",
+    "gravity": -10.0,
+    "enable_wind": false,
+    "wind_power": 15.0,
+    "turbulence_power": 1.5,
+    "atmosphere": 0.0,
+    "engine_power": 1.0,
+    "fact": "The original Lunar Lander test site: 10 m/s², no air, no wind."
+  },
+  "mercury": {
+    "name": "Mercury",
+    "gravity": -3.7,
+    "enable_wind": false,
+    "wind_power": 0.0,
+    "turbulence_power": 0.0,
+    "atmosphere": 0.0,
+    "engine_power": 0.37,
+    "fact": "No air at all. One day lasts 176 Earth days; 167 °C on average."
+  },
+  "venus": {
+    "name": "Venus",
+    "gravity": -8.9,
+    "enable_wind": true,
+    "wind_power": 3.0,
+    "turbulence_power": 0.5,
+    "atmosphere": 1.2,
+    "engine_power": 1.0,
+    "fact": "Air 92 times thicker than Earth's slows every move; 464 °C."
+  },
+  "earth": {
+    "name": "Earth",
+    "gravity": -9.8,
+    "enable_wind": true,
+    "wind_power": 5.0,
+    "turbulence_power": 0.5,
+    "atmosphere": 0.1,
+    "engine_power": 1.0,
+    "fact": "One bar of air, a breeze, 15 °C on average."
+  },
+  "moon": {
+    "name": "Moon",
+    "gravity": -1.6,
+    "enable_wind": false,
+    "wind_power": 0.0,
+    "turbulence_power": 0.0,
+    "atmosphere": 0.0,
+    "engine_power": 0.34,
+    "fact": "No air, no wind, and a sixth of Earth's gravity."
+  },
+  "mars": {
+    "name": "Mars",
+    "gravity": -3.7,
+    "enable_wind": true,
+    "wind_power": 2.0,
+    "turbulence_power": 0.3,
+    "atmosphere": 0.02,
+    "engine_power": 0.37,
+    "fact": "Thin CO₂ air, 1% of Earth's, with dusty gusts; −65 °C."
+  },
+  "jupiter": {
+    "name": "Jupiter",
+    "gravity": -23.1,
+    "enable_wind": true,
+    "wind_power": 12.0,
+    "turbulence_power": 1.2,
+    "atmosphere": 0.3,
+    "engine_power": 2.3,
+    "fact": "No surface: a pad floats in the cloud tops. Needs a 2.3× engine and sturdy legs."
+  },
+  "europa": {
+    "name": "Europa",
+    "gravity": -1.31,
+    "enable_wind": false,
+    "wind_power": 0.0,
+    "turbulence_power": 0.0,
+    "atmosphere": 0.0,
+    "engine_power": 0.34,
+    "fact": "Jupiter's icy moon. No air, about −160 °C, Jupiter fills the sky."
+  },
+  "saturn": {
+    "name": "Saturn",
+    "gravity": -9.0,
+    "enable_wind": true,
+    "wind_power": 12.0,
+    "turbulence_power": 1.2,
+    "atmosphere": 0.25,
+    "engine_power": 1.0,
+    "fact": "No surface: a pad floats above fast, freezing clouds; −140 °C."
+  },
+  "titan": {
+    "name": "Titan",
+    "gravity": -1.35,
+    "enable_wind": true,
+    "wind_power": 2.0,
+    "turbulence_power": 0.3,
+    "atmosphere": 0.6,
+    "engine_power": 0.34,
+    "fact": "Saturn's moon: air 1.5 times thicker than Earth's, gravity weaker than the Moon's."
+  },
+  "uranus": {
+    "name": "Uranus",
+    "gravity": -8.7,
+    "enable_wind": true,
+    "wind_power": 10.0,
+    "turbulence_power": 1.0,
+    "atmosphere": 0.25,
+    "engine_power": 1.0,
+    "fact": "An ice giant tipped on its side by 98°; −195 °C."
+  },
+  "neptune": {
+    "name": "Neptune",
+    "gravity": -11.0,
+    "enable_wind": true,
+    "wind_power": 16.0,
+    "turbulence_power": 1.6,
+    "atmosphere": 0.25,
+    "engine_power": 1.1,
+    "fact": "The fastest winds in the solar system; −200 °C."
+  },
+  "pluto": {
+    "name": "Pluto",
+    "gravity": -0.7,
+    "enable_wind": false,
+    "wind_power": 0.0,
+    "turbulence_power": 0.0,
+    "atmosphere": 0.0,
+    "engine_power": 0.34,
+    "fact": "A whisper of air, 1/100,000 of Earth's; −225 °C."
+  }
+}

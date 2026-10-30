@@ -4,3 +4,6 @@ runs/
 .DS_Store
 .claude/settings.local.json
 brag-output/
+node_modules/
+package-lock.json
+.pytest_cache/

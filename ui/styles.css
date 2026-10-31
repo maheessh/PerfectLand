@@ -856,13 +856,18 @@ kbd {
 .btn-big:hover { background: #d4561f; }
 .btn-ghost { border-color: transparent; border-radius: 999px; }
 .btn-ghost:hover { background: rgba(1, 1, 1, 0.06); }
-.tr-idle { display: grid; justify-items: center; text-align: center; padding: 28px 12px 20px; }
-.tr-idle h3 { border: 0; padding: 0; margin: 14px 0 0; font-size: 22px; }
-.tr-idle p { max-width: 34ch; margin: 8px 0 22px; }
-.tr-rocket { width: 64px; height: 64px; animation: tr-bob 2.4s ease-in-out infinite; }
-@keyframes tr-bob { 50% { transform: translateY(-6px); } }
-@media (prefers-reduced-motion: reduce) { .tr-rocket { animation: none; } }
-
+.tr-view { margin: -26px -28px 0; }
+.tr-view .tr-view-tag { position: absolute; left: 16px; top: 14px; margin: 0; }
+.tr-coords { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; margin: 0 -28px; padding: 12px 28px; border-bottom: 1px solid var(--card-hair); }
+.tr-coords dt { font-size: 10.5px; color: var(--on-card-3); white-space: nowrap; }
+.tr-coords dd { margin: 2px 0 0; font-size: 14px; }
+.tr-label { margin: 20px 0 10px; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--on-card-3); }
+.tr-planets { display: flex; flex-wrap: wrap; gap: 6px; }
+.tr-planets .world-chip { height: 30px; padding: 0 11px; font-size: 12.5px; border-color: var(--card-hair); color: #fff; }
+.tr-planets .world-chip:hover { border-color: #fff; }
+.tr-planets .world-chip[aria-selected="true"] { background: #fff; color: var(--ink); border-color: #fff; }
+.tr-idle-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 22px; }
+.tr-idle-row p { margin: 0; max-width: 46ch; }
 /* The "Train a new AI" pop-up */
 .tr-dialog {
   width: min(460px, calc(100vw - 32px)); padding: 0; border: 2px solid var(--ink); border-radius: 20px;
@@ -919,6 +924,11 @@ kbd {
 .ai-actions button:hover { text-decoration: underline; }
 .ai-actions .danger { color: #ffb4a8; }
 @media (max-width: 1100px) { .trainer-grid { grid-template-columns: 1fr; } }
-@media (max-width: 760px) { .card.trainer-card { padding: 20px; } }
+@media (max-width: 760px) {
+  .card.trainer-card { padding: 20px; }
+  .tr-view { margin: -20px -20px 0; }
+  .tr-coords { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 -20px; padding: 12px 20px; }
+  .tr-idle-row { flex-direction: column; align-items: stretch; }
+}
 @media (max-width: 420px) { .tr-lengths { grid-template-columns: 1fr; } }
 .tr-done .nudge-train { background: var(--signal); border-color: var(--signal); color: #fff; }

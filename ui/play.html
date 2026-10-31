@@ -178,11 +178,18 @@
       </div>
       <div class="trainer-grid">
         <article class="card trainer-card">
+          <div class="deck-view tr-view">
+            <canvas id="tr-stage" aria-label="Your AI flying over the planet you picked"></canvas>
+            <p class="view-caption tr-view-tag" id="tr-view-tag">A brand-new AI · pressing buttons at random</p>
+          </div>
+          <dl class="tr-coords" id="tr-coords" aria-label="The 8 numbers the AI sees, live"></dl>
           <div id="tr-setup" class="tr-idle">
-            <svg class="tr-rocket" viewBox="0 0 64 64" aria-hidden="true"><path d="M32 6c9 8 12 18 12 30H20c0-12 3-22 12-30z" fill="#fff"/><circle cx="32" cy="26" r="5" fill="#3987e5"/><path d="M20 36l-8 10h10zM44 36l8 10H42z" fill="#eb6834"/><path d="M26 42h12l-3 10h-6z" fill="#f5c142"/></svg>
-            <h3>Your AI starts out knowing nothing.</h3>
-            <p>Give it a name, pick a world, and watch it go from crashing to landing in about a minute.</p>
-            <button class="btn btn-big" id="tr-open">Train a new AI</button>
+            <p class="tr-label">Pick a planet</p>
+            <div class="tr-planets" id="tr-planets" role="tablist" aria-label="Planet"></div>
+            <div class="tr-idle-row">
+              <p>Your AI starts out knowing nothing, like the rocket above. Give it a name and watch it learn to land.</p>
+              <button class="btn btn-big" id="tr-open">Train a new AI</button>
+            </div>
           </div>
           <div id="tr-live" class="tr-live" hidden>
             <div class="tr-top"><h3 id="tr-title">Training</h3><button class="btn btn-light btn-outline" id="tr-stop">Stop and save</button></div>

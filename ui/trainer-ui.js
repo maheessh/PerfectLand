@@ -1,7 +1,9 @@
 // "Train your own AI", in the game page: pick a world and how long, watch your pilot learn in a
 // background thread, then race it. Pilots are saved in this browser (my-ais.js), so they're yours.
 
+import { createFlightScreen } from "./flight-screen.js";
 import { myAIs, profile } from "./my-ais.js";
+import { WORLD_DOT } from "./worlds.js";
 
 const $ = (id) => document.getElementById(id);
 const PHYSICS = ["gravity", "enable_wind", "wind_power", "turbulence_power", "atmosphere", "engine_power"];
@@ -9,6 +11,10 @@ const LENGTHS = [ // measured: ~7,500 frames a second on a laptop; first landing
   { id: "quick", label: "Quick", frames: 300_000, time: "45 sec", note: "learns to hover" },
   { id: "standard", label: "Normal", frames: 700_000, time: "1½ min", note: "usually lands" },
   { id: "long", label: "Long", frames: 1_500_000, time: "3½ min", note: "lands well" },
+];
+const COORDS = [ // the 8 numbers the AI sees, in order
+  ["Side", (v) => v.toFixed(2)], ["Height", (v) => v.toFixed(2)], ["Side speed", (v) => v.toFixed(2)], ["Up speed", (v) => v.toFixed(2)],
+  ["Tilt", (v) => v.toFixed(2)], ["Spin", (v) => v.toFixed(2)], ["Left leg", (v) => (v ? "down" : "up")], ["Right leg", (v) => (v ? "down" : "up")],
 ];
 const OUTCOME_COLOR = { "landed on pad": "#3987e5", "landed off pad": "#d95926", "timed out": "#199e70", crashed: "#6e6d68", "flew off screen": "#6e6d68" };
 
@@ -20,14 +26,55 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
     chart: $("tr-chart"), list: $("tr-list"), done: $("tr-done"), import: $("tr-import"), file: $("tr-file"), title: $("tr-title"),
   };
 
+  // The flight screen, its planet picker and the 8 numbers the AI sees ----------------------------------
+  el.coords = $("tr-coords");
+  el.coords.replaceChildren(...COORDS.map(([label]) => {
+    const d = document.createElement("div");
+    d.innerHTML = "<dt></dt><dd class=\"mono\">–</dd>";
+    d.firstChild.textContent = label;
+    return d;
+  }));
+  let lastCoords = 0;
+  const screen = createFlightScreen($("tr-stage"), {
+    worlds,
+    onFrame(f) {
+      const now = performance.now();
+      if (now - lastCoords < 100) return;
+      lastCoords = now;
+      COORDS.forEach(([, show], i) => { el.coords.children[i].lastChild.textContent = show(f.obs[i]); });
+    },
+  });
+  const tag = (text) => { $("tr-view-tag").textContent = text; };
+  const IDLE_TAG = "A brand-new AI · pressing buttons at random";
+  const planets = $("tr-planets");
+  planets.replaceChildren(...order.filter((id) => worlds[id]).map((id) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "world-chip";
+    chip.setAttribute("role", "tab");
+    chip.dataset.world = id;
+    const dot = document.createElement("i");
+    dot.style.background = WORLD_DOT[id] || "#888";
+    chip.append(dot, worlds[id].name);
+    chip.addEventListener("click", () => pickWorld(id));
+    return chip;
+  }));
+  /** Show a planet on the screen and make it the one to practise on. */
+  function pickWorld(id) {
+    if (!worlds[id]) return;
+    el.world.value = id;
+    for (const c of planets.children) c.setAttribute("aria-selected", String(c.dataset.world === id));
+    if (!state.worker) screen.setWorld(id);
+    el.aiName.placeholder = suggestName();
+  }
+
   // Setup form ----------------------------------------------------------------------------------
   el.name.value = profile.name;
   for (const id of order) if (worlds[id]) el.world.append(new Option(worlds[id].name, id));
-  el.world.value = getWorld();
   const suggestName = () => `${profile.name ? `${profile.name}'s` : "My"} ${worlds[el.world.value].name} pilot`;
-  el.aiName.placeholder = suggestName();
+  pickWorld(getWorld());
   el.name.addEventListener("input", () => { profile.name = el.name.value; el.aiName.placeholder = suggestName(); });
-  el.world.addEventListener("change", () => { el.aiName.placeholder = suggestName(); });
+  el.world.addEventListener("change", () => pickWorld(el.world.value));
   el.lengths.replaceChildren(...LENGTHS.map((l) => {
     const b = document.createElement("button");
     b.type = "button";
@@ -62,6 +109,9 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
     const w = worlds[pilot.world];
     const conditions = { ...Object.fromEntries(PHYSICS.map((k) => [k, w[k]])), start_height: 10 };
     state.pilot = pilot;
+    screen.setWorld(pilot.world);
+    screen.setPilot(existing?.weights || null);
+    tag(existing ? `${pilot.name} · its best so far` : `${pilot.name} · random button presses at first`);
     state.tests = pilot.history.map(([frames, landed, flights, score]) => ({ frames, landed, flights, score }));
     state.framesBefore = pilot.frames;
     state.dots = [];
@@ -92,6 +142,10 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
       draw();
     } else if (m.type === "test") {
       state.tests.push({ frames: state.framesBefore + m.frames, landed: m.landed, flights: m.flights, score: m.score });
+      if (m.snapshot) {
+        screen.setPilot(m.snapshot);
+        tag(`${p.name} after ${((state.framesBefore + m.frames) / 1000).toFixed(0)}k frames · landed ${m.landed} of ${m.flights} tests`);
+      }
       if (m.weights && (!p.best || m.landed > p.best.landed || (m.landed === p.best.landed && m.score > p.best.score))) {
         p.best = { landed: m.landed, flights: m.flights, score: Math.round(m.score * 10) / 10, frames: state.framesBefore + m.frames };
         p.weights = m.weights;
@@ -111,11 +165,13 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
     state.worker?.terminate();
     state.worker = null;
     el.stop.hidden = true;
-    if (!p) { el.setup.hidden = false; el.live.hidden = true; return; }
+    if (!p) { toIdle(); return; }
     await myAIs.save(p);
     await renderList();
     onSaved(p);
     const b = p.best;
+    screen.setPilot(p.weights);
+    tag(`${p.name} · its best version${b ? ` (${b.landed} of ${b.flights} landed)` : ""}`);
     el.status.textContent = `${stopped ? "Stopped" : "Done"} after ${(p.frames / 1000).toFixed(0)}k frames of practice. Saved in this browser.`;
     el.done.hidden = false;
     $("tr-done-text").textContent = !b ? "It didn't get a test flight in yet. Keep training it."
@@ -124,7 +180,7 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
       : `${p.name} landed ${b.landed} of ${b.flights} test flights. Every pilot starts by crashing. Train it more and it will learn.`;
     $("tr-race").onclick = () => onRace(p.id);
     $("tr-more").onclick = () => start(p);
-    $("tr-new").onclick = () => { el.setup.hidden = false; el.live.hidden = true; openDialog(); };
+    $("tr-new").onclick = () => { toIdle(); openDialog(); };
   }
 
   // The live chart: every practice flight as a dot, test landings as bars --------------------------------
@@ -217,10 +273,18 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
     setTimeout(() => t.remove(), 3600);
   }
 
+  function toIdle() {
+    el.setup.hidden = false;
+    el.live.hidden = true;
+    screen.setPilot(null);
+    tag(IDLE_TAG);
+    pickWorld(el.world.value);
+  }
+
   /** The "Train a new AI" pop-up: name, world and how long. */
   function openDialog(world) {
     if (state.worker) { $("train").scrollIntoView({ behavior: "smooth" }); return flash("One at a time: wait for this training to finish."); }
-    if (worlds[world]) el.world.value = world;
+    if (worlds[world]) pickWorld(world);
     el.aiName.value = "";
     el.aiName.placeholder = suggestName();
     el.dialog.showModal();
@@ -232,7 +296,7 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
     renderList,
     /** Open the trainer on a world (from the "Train my AI" nudge). */
     openFor(world) {
-      if (!state.worker) { el.setup.hidden = false; el.live.hidden = true; }
+      if (!state.worker) toIdle();
       openDialog(world);
     },
   };

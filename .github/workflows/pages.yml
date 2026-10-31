@@ -30,7 +30,7 @@ jobs:
         run: |
           mkdir _site
           cp ui/play.html _site/index.html
-          cp ui/play.js ui/sim.js ui/nn.js ui/stage.js ui/worlds.js ui/lander.js ui/sound.js ui/annunciator.js ui/specs.js ui/nav.js ui/ppo.js ui/train-worker.js ui/trainer-ui.js ui/my-ais.js ui/styles.css _site/
+          cp ui/play.js ui/sim.js ui/nn.js ui/stage.js ui/worlds.js ui/lander.js ui/sound.js ui/annunciator.js ui/specs.js ui/nav.js ui/ppo.js ui/train-worker.js ui/trainer-ui.js ui/flight-screen.js ui/my-ais.js ui/styles.css _site/
           cp -r ui/vendor _site/vendor
           cp -r ui/figures _site/figures && rm -rf _site/figures/src _site/figures/build.py
           cp -r ui/data _site/data

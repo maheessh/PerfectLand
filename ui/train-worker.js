@@ -1,7 +1,7 @@
 // Trains a pilot in a background thread, so the page stays smooth while it learns.
 // In:  { type: "start", conditions, frames, weights?, seed }  |  { type: "stop" }
-// Out: progress after every batch, a test every ~20k frames (with the weights when it's the best
-//      so far), and "done" with the final and best weights.
+// Out: progress after every batch, a test every ~20k frames (with a snapshot of the network, and the
+//      weights when it's the best so far), and "done" with the final and best weights.
 
 import { createTrainer, exportWeights, importWeights, newAgent, test } from "./ppo.js";
 
@@ -20,7 +20,7 @@ self.onmessage = async ({ data }) => {
     const t = test(agent, conditions, 10);
     const better = !best || t.landed > best.landed || (t.landed === best.landed && t.score > best.score);
     if (better) best = { ...t, frames: done, weights: exportWeights(agent) };
-    self.postMessage({ type: "test", frames: done, ...t, best: better, weights: better ? best.weights : null });
+    self.postMessage({ type: "test", frames: done, ...t, best: better, weights: better ? best.weights : null, snapshot: exportWeights(agent, 4) });
   };
   while (done < goal && !stopped) {
     const r = trainer.step();

@@ -36,30 +36,25 @@
     </a>
       <div class="mode-switch" role="navigation" aria-label="PerfectLand">
         <a href="#top" class="on" aria-current="page">Play</a>
-        <a href="https://github.com/maheessh/PerfectLand#quick-start" class="switch-mc" id="switch-mc" target="_blank" rel="noopener" title="Mission control trains your own AI, on your computer">Mission control ↗</a>
+        <a href="./" class="switch-mc" id="switch-mc">Mission control</a>
       </div>
     </div>
     <nav class="nav-links" aria-label="Sections">
       <a href="#top">Play</a>
-      <a href="#train">Train your AI</a>
       <a href="#lander">The lander</a>
       <a href="#how">How the AI learned</a>
     </nav>
     <div class="nav-right">
-      <a class="nav-text-link" href="https://github.com/maheessh/PerfectLand" target="_blank" rel="noopener">GitHub ↗</a>
-      <a class="btn btn-solid" id="nav-home" href="#train">Train your AI</a>
       <button class="nav-menu" id="nav-menu" aria-expanded="false" aria-controls="nav-panel"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></button>
     </div>
   </header>
   <div class="nav-panel" id="nav-panel" hidden>
     <p class="eyebrow">On this page</p>
     <a href="#top">Play</a>
-    <a href="#train">Train your AI</a>
     <a href="#lander">The lander</a>
     <a href="#how">How the AI learned</a>
     <p class="eyebrow">PerfectLand</p>
-    <a href="https://github.com/maheessh/PerfectLand#quick-start" id="panel-mc" target="_blank" rel="noopener">Mission control ↗</a>
-    <a href="https://github.com/maheessh/PerfectLand" target="_blank" rel="noopener">GitHub ↗</a>
+    <a href="./" id="panel-mc">Mission control</a>
   </div>
 
   <main id="top">
@@ -178,23 +173,16 @@
         <div>
           <p class="eyebrow">Train your own AI</p>
           <h2>Teach your own pilot.</h2>
-          <p>Right here, in your browser. Your AI starts out knowing nothing, crashes a lot, and learns to land in a minute or two. It's saved in this browser only: nobody else sees it, and you can race it, train it more, or export it.</p>
+          <p>Right here in your browser. It's saved only on this device, so it's all yours.</p>
         </div>
       </div>
       <div class="trainer-grid">
         <article class="card trainer-card">
-          <div id="tr-setup" class="tr-setup">
-            <div class="tr-fields">
-              <label><span>Your name</span><input id="tr-player" type="text" maxlength="30" placeholder="optional" autocomplete="nickname"></label>
-              <label><span>Name your AI</span><input id="tr-ai-name" type="text" maxlength="40"></label>
-              <label><span>World to practise on</span><select id="tr-world"></select></label>
-            </div>
-            <p class="tr-label">How long to practise</p>
-            <div class="tr-lengths" id="tr-lengths"></div>
-            <div class="tr-go">
-              <button class="btn btn-solid btn-light" id="tr-start">Start training</button>
-              <p>It trains in the background while you play. Keep this tab open.</p>
-            </div>
+          <div id="tr-setup" class="tr-idle">
+            <svg class="tr-rocket" viewBox="0 0 64 64" aria-hidden="true"><path d="M32 6c9 8 12 18 12 30H20c0-12 3-22 12-30z" fill="#fff"/><circle cx="32" cy="26" r="5" fill="#3987e5"/><path d="M20 36l-8 10h10zM44 36l8 10H42z" fill="#eb6834"/><path d="M26 42h12l-3 10h-6z" fill="#f5c142"/></svg>
+            <h3>Your AI starts out knowing nothing.</h3>
+            <p>Give it a name, pick a world, and watch it go from crashing to landing in about a minute.</p>
+            <button class="btn btn-big" id="tr-open">Train a new AI</button>
           </div>
           <div id="tr-live" class="tr-live" hidden>
             <div class="tr-top"><h3 id="tr-title">Training</h3><button class="btn btn-light btn-outline" id="tr-stop">Stop and save</button></div>
@@ -206,7 +194,7 @@
               <div><dt>Test landings</dt><dd id="tr-test">–</dd></div>
             </dl>
             <div class="tr-chart-wrap"><canvas id="tr-chart" aria-label="Every practice flight as a dot; blue bars are test landings"></canvas></div>
-            <p class="tr-legend"><i style="background:#3987e5"></i>landed <i style="background:#d95926"></i>off the pad <i style="background:#199e70"></i>ran out of time <i style="background:#6e6d68"></i>crashed · white line: average score · blue bars: test landings out of 10</p>
+            <p class="tr-legend"><i style="background:#3987e5"></i>landed <i style="background:#d95926"></i>missed the pad <i style="background:#199e70"></i>ran out of time <i style="background:#6e6d68"></i>crashed</p>
             <div class="tr-done" id="tr-done" hidden>
               <p id="tr-done-text"></p>
               <div class="tr-done-actions">
@@ -225,6 +213,23 @@
         </aside>
       </div>
     </section>
+
+    <dialog class="tr-dialog" id="tr-dialog" aria-labelledby="tr-dialog-title">
+      <form id="tr-form" method="dialog">
+        <button class="tr-close" type="button" id="tr-cancel-x" aria-label="Close">×</button>
+        <h2 id="tr-dialog-title">Train a new AI</h2>
+        <p class="tr-sub">Three quick choices and you're off.</p>
+        <label class="tr-field"><span>What's your name?</span><input id="tr-player" type="text" maxlength="30" placeholder="Optional" autocomplete="nickname"></label>
+        <label class="tr-field"><span>Name your AI</span><input id="tr-ai-name" type="text" maxlength="40"></label>
+        <label class="tr-field"><span>Where will it practise?</span><select id="tr-world"></select></label>
+        <p class="tr-field-label">How long?</p>
+        <div class="tr-lengths" id="tr-lengths"></div>
+        <div class="tr-dialog-actions">
+          <button class="btn btn-ghost" type="button" id="tr-cancel">Not now</button>
+          <button class="btn btn-big" type="submit" id="tr-start">Start training</button>
+        </div>
+      </form>
+    </dialog>
 
     <section class="section lander-section" id="lander">
       <div class="section-head">

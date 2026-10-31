@@ -6,9 +6,9 @@ import { myAIs, profile } from "./my-ais.js";
 const $ = (id) => document.getElementById(id);
 const PHYSICS = ["gravity", "enable_wind", "wind_power", "turbulence_power", "atmosphere", "engine_power"];
 const LENGTHS = [ // measured: ~7,500 frames a second on a laptop; first landings around 500k frames
-  { id: "quick", label: "Quick", frames: 300_000, note: "~45 s · learns to hover" },
-  { id: "standard", label: "Standard", frames: 700_000, note: "~1.5 min · usually lands" },
-  { id: "long", label: "Long", frames: 1_500_000, note: "~3.5 min · lands well" },
+  { id: "quick", label: "Quick", frames: 300_000, time: "45 sec", note: "learns to hover" },
+  { id: "standard", label: "Normal", frames: 700_000, time: "1½ min", note: "usually lands" },
+  { id: "long", label: "Long", frames: 1_500_000, time: "3½ min", note: "lands well" },
 ];
 const OUTCOME_COLOR = { "landed on pad": "#3987e5", "landed off pad": "#d95926", "timed out": "#199e70", crashed: "#6e6d68", "flew off screen": "#6e6d68" };
 
@@ -16,7 +16,7 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
   const state = { worker: null, pilot: null, length: "standard", tests: [], dots: [], last: null, framesBefore: 0 };
   const el = {
     setup: $("tr-setup"), live: $("tr-live"), name: $("tr-player"), aiName: $("tr-ai-name"), world: $("tr-world"),
-    lengths: $("tr-lengths"), start: $("tr-start"), stop: $("tr-stop"), bar: $("tr-bar"), status: $("tr-status"),
+    lengths: $("tr-lengths"), dialog: $("tr-dialog"), form: $("tr-form"), stop: $("tr-stop"), bar: $("tr-bar"), status: $("tr-status"),
     chart: $("tr-chart"), list: $("tr-list"), done: $("tr-done"), import: $("tr-import"), file: $("tr-file"), title: $("tr-title"),
   };
 
@@ -32,14 +32,17 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
     const b = document.createElement("button");
     b.type = "button";
     b.dataset.length = l.id;
-    b.innerHTML = `<b>${l.label}</b><span>${l.frames >= 1e6 ? `${l.frames / 1e6}M` : `${l.frames / 1000}k`} frames</span><span>${l.note}</span>`;
+    b.innerHTML = `<b>${l.label}</b><span>${l.time}</span><span>${l.note}</span>`;
     b.addEventListener("click", () => { state.length = l.id; paintLengths(); });
     return b;
   }));
   const paintLengths = () => { for (const b of el.lengths.children) b.classList.toggle("on", b.dataset.length === state.length); };
   paintLengths();
 
-  el.start.addEventListener("click", () => start());
+  el.form.addEventListener("submit", (e) => { e.preventDefault(); el.dialog.close(); start(); });
+  for (const id of ["tr-cancel", "tr-cancel-x"]) $(id).addEventListener("click", () => el.dialog.close());
+  el.dialog.addEventListener("click", (e) => { if (e.target === el.dialog) el.dialog.close(); }); // click outside
+  $("tr-open").addEventListener("click", () => openDialog());
   el.stop.addEventListener("click", () => state.worker?.postMessage({ type: "stop" }));
   el.import.addEventListener("click", () => el.file.click());
   el.file.addEventListener("change", async () => {
@@ -121,7 +124,7 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
       : `${p.name} landed ${b.landed} of ${b.flights} test flights. Every pilot starts by crashing. Train it more and it will learn.`;
     $("tr-race").onclick = () => onRace(p.id);
     $("tr-more").onclick = () => start(p);
-    $("tr-new").onclick = () => { el.setup.hidden = false; el.live.hidden = true; };
+    $("tr-new").onclick = () => { el.setup.hidden = false; el.live.hidden = true; openDialog(); };
   }
 
   // The live chart: every practice flight as a dot, test landings as bars --------------------------------
@@ -214,16 +217,23 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
     setTimeout(() => t.remove(), 3600);
   }
 
+  /** The "Train a new AI" pop-up: name, world and how long. */
+  function openDialog(world) {
+    if (state.worker) { $("train").scrollIntoView({ behavior: "smooth" }); return flash("One at a time: wait for this training to finish."); }
+    if (worlds[world]) el.world.value = world;
+    el.aiName.value = "";
+    el.aiName.placeholder = suggestName();
+    el.dialog.showModal();
+    (profile.name ? el.aiName : el.name).focus();
+  }
+
   renderList();
   return {
     renderList,
     /** Open the trainer on a world (from the "Train my AI" nudge). */
     openFor(world) {
-      if (worlds[world]) el.world.value = world;
-      el.aiName.placeholder = suggestName();
       if (!state.worker) { el.setup.hidden = false; el.live.hidden = true; }
-      $("train").scrollIntoView({ behavior: "smooth", block: "start" });
-      setTimeout(() => el.aiName.focus({ preventScroll: true }), 600);
+      openDialog(world);
     },
   };
 }

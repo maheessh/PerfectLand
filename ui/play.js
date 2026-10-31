@@ -739,16 +739,8 @@ async function detectServer() {
 async function init() {
   game.worlds = await fetch("data/worlds.json").then((r) => r.json());
   game.server = location.protocol.startsWith("http") && !location.hostname.endsWith("github.io") && (await detectServer());
-  if (game.server) {
-    // Mission control is running here: the switch opens it, and "Train your AI" opens its training panel.
-    for (const id of ["switch-mc", "panel-mc"]) {
-      const a = $(id);
-      a.textContent = "Mission control";
-      a.href = "/";
-      a.removeAttribute("target");
-      a.removeAttribute("title");
-    }
-  }
+  // Mission control runs on your own computer (python app.py), so the published game has no link to it.
+  if (location.hostname.endsWith("github.io")) for (const id of ["switch-mc", "panel-mc"]) $(id).hidden = true;
   setupNav();
   const params = new URLSearchParams(location.search);
   const mode = params.get("mode");

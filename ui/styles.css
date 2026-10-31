@@ -852,24 +852,42 @@ kbd {
 /* Train your own AI (play.html) --------------------------------------------------------- */
 .trainer-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
 .card.trainer-card { padding: 26px 28px 28px; }
-.tr-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.tr-fields label { display: grid; gap: 6px; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--on-card-3); }
-.tr-fields input, .tr-fields select {
-  height: 40px; padding: 0 12px; border: 1px solid rgba(255, 255, 255, 0.3); background: transparent; color: #fff;
-  font: 15px var(--font); letter-spacing: 0; text-transform: none;
+.btn-big { height: 48px; padding: 0 24px; font-size: 15px; font-weight: 600; border-radius: 999px; border-color: var(--signal); background: var(--signal); color: #fff; }
+.btn-big:hover { background: #d4561f; }
+.btn-ghost { border-color: transparent; border-radius: 999px; }
+.btn-ghost:hover { background: rgba(1, 1, 1, 0.06); }
+.tr-idle { display: grid; justify-items: center; text-align: center; padding: 28px 12px 20px; }
+.tr-idle h3 { border: 0; padding: 0; margin: 14px 0 0; font-size: 22px; }
+.tr-idle p { max-width: 34ch; margin: 8px 0 22px; }
+.tr-rocket { width: 64px; height: 64px; animation: tr-bob 2.4s ease-in-out infinite; }
+@keyframes tr-bob { 50% { transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .tr-rocket { animation: none; } }
+
+/* The "Train a new AI" pop-up */
+.tr-dialog {
+  width: min(460px, calc(100vw - 32px)); padding: 0; border: 2px solid var(--ink); border-radius: 20px;
+  background: #f2efe7; color: var(--ink); box-shadow: 6px 6px 0 var(--ink);
 }
-.tr-fields input::placeholder { color: rgba(255, 255, 255, 0.4); }
-.tr-fields input:focus, .tr-fields select:focus { outline: none; border-color: #fff; }
-.tr-fields option { color: #000; }
-.tr-label { margin: 22px 0 8px; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--on-card-3); }
+.tr-dialog::backdrop { background: rgba(1, 1, 1, 0.45); }
+.tr-dialog form { position: relative; display: grid; gap: 16px; padding: 28px 26px 24px; }
+.tr-dialog h2 { margin: 0; font-size: 28px; letter-spacing: -0.02em; line-height: 1.1; }
+.tr-sub { margin: -10px 0 4px; color: var(--ink-2); }
+.tr-close { position: absolute; top: 14px; right: 14px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent; font-size: 24px; line-height: 1; cursor: pointer; }
+.tr-close:hover { background: rgba(1, 1, 1, 0.08); }
+.tr-field { display: grid; gap: 6px; }
+.tr-field span, .tr-field-label { margin: 0; font-size: 14px; font-weight: 600; }
+.tr-field input, .tr-field select {
+  height: 46px; padding: 0 14px; border: 2px solid var(--hair); border-radius: 12px; background: #fff; font-size: 16px;
+}
+.tr-field input:focus, .tr-field select:focus { outline: none; border-color: var(--ink); }
+.tr-field-label { margin-bottom: -8px; }
 .tr-lengths { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.tr-lengths button { display: grid; gap: 3px; padding: 12px 14px; border: 1px solid rgba(255, 255, 255, 0.25); background: transparent; color: #fff; text-align: left; cursor: pointer; }
-.tr-lengths button:hover { border-color: #fff; }
-.tr-lengths button.on { background: #fff; color: #000; border-color: #fff; }
+.tr-lengths button { display: grid; gap: 2px; padding: 10px 12px; border: 2px solid var(--hair); border-radius: 12px; background: #fff; text-align: left; cursor: pointer; }
+.tr-lengths button:hover { border-color: var(--ink-3); }
+.tr-lengths button.on { border-color: var(--ink); background: var(--ink); color: #fff; }
 .tr-lengths b { font-size: 15px; font-weight: 600; }
-.tr-lengths span { font: 11.5px/1.4 var(--mono); opacity: 0.7; }
-.tr-go { display: flex; align-items: center; gap: 16px; margin-top: 22px; flex-wrap: wrap; }
-.tr-go p { margin: 0; font-size: 13px; color: var(--on-card-3); }
+.tr-lengths span { font-size: 12.5px; line-height: 1.35; opacity: 0.7; }
+.tr-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .tr-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .tr-top h3 { border: 0; padding: 0; }
 .tr-progress { margin: 16px 0 10px; height: 4px; }
@@ -901,5 +919,6 @@ kbd {
 .ai-actions button:hover { text-decoration: underline; }
 .ai-actions .danger { color: #ffb4a8; }
 @media (max-width: 1100px) { .trainer-grid { grid-template-columns: 1fr; } }
-@media (max-width: 760px) { .tr-fields, .tr-lengths { grid-template-columns: 1fr; } .card.trainer-card { padding: 20px; } }
+@media (max-width: 760px) { .card.trainer-card { padding: 20px; } }
+@media (max-width: 420px) { .tr-lengths { grid-template-columns: 1fr; } }
 .tr-done .nudge-train { background: var(--signal); border-color: var(--signal); color: #fff; }

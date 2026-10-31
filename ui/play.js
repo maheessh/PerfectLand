@@ -11,7 +11,7 @@ import { FPS, Flight, OUTCOMES } from "./sim.js";
 import { createSound } from "./sound.js";
 import { specs } from "./specs.js";
 import { createStage } from "./stage.js";
-import { WORLD_DOT } from "./worlds.js";
+import { createGlobe, WORLD_DOT } from "./worlds.js";
 
 const $ = (id) => document.getElementById(id);
 const STEP = 1 / FPS;
@@ -45,6 +45,7 @@ const game = {
 };
 
 const stage = createStage($("stage"));
+const globe = createGlobe($("globe")); // the world you picked, spinning at the top of the page
 const lamps = createAnnunciator($("annunciator"), $("callout"));
 const sound = createSound({ fallback: true });
 stage.options.showTrails = false;
@@ -130,8 +131,35 @@ function selectWorld(id) {
   for (const chip of $("world-picker").children) chip.setAttribute("aria-selected", String(chip.dataset.world === id));
   revealChip();
   stage.setWorld(id);
+  showGlobe();
   renderSpecs();
   toIdle();
+}
+
+function stepWorld(delta) {
+  const i = WORLD_ORDER.indexOf(game.world);
+  selectWorld(WORLD_ORDER[(i + delta + WORLD_ORDER.length) % WORLD_ORDER.length]);
+}
+
+/** The globe at the top: the world's name, a fact about it, and what it's like to land there. */
+function showGlobe() {
+  const w = game.worlds[game.world];
+  globe.setWorld(game.world);
+  $("world-name").textContent = w.name;
+  $("world-fact").textContent = w.fact || "";
+  const stats = [
+    ["Gravity", `${Math.abs(w.gravity).toFixed(2).replace(/\.?0+$/, "")} m/s²`],
+    ["Air", !w.atmosphere ? "none" : w.atmosphere < 0.5 ? "thin" : "thick"],
+    ["Wind", w.enable_wind ? `${w.wind_power}` : "none"],
+    ["Engine", `${w.engine_power}×`],
+  ];
+  $("world-stats").replaceChildren(...stats.map(([label, value]) => {
+    const div = document.createElement("div");
+    div.innerHTML = "<dt></dt><dd></dd>";
+    div.firstChild.textContent = label;
+    div.lastChild.textContent = value;
+    return div;
+  }));
 }
 
 // The hand-drawn figures live in their own pages; each tells us its height so its frame fits it.
@@ -720,6 +748,7 @@ function loop(now) {
     updateDecision();
   }
   stage.render(dt);
+  if (globeVisible) globe.render();
   requestAnimationFrame(loop);
 }
 
@@ -735,6 +764,9 @@ async function detectServer() {
     clearTimeout(timer);
   }
 }
+
+let globeVisible = true;
+new IntersectionObserver(([e]) => { globeVisible = e.isIntersecting; }).observe($("globe"));
 
 async function init() {
   game.worlds = await fetch("data/worlds.json").then((r) => r.json());
@@ -755,6 +787,9 @@ async function init() {
   bindInput();
   if (game.mode !== "race") $("mode").querySelector(`[data-mode="${game.mode}"]`).click();
   stage.setWorld(game.world);
+  showGlobe();
+  $("world-prev").addEventListener("click", () => stepWorld(-1));
+  $("world-next").addEventListener("click", () => stepWorld(1));
   renderSpecs();
   await loadOpponents();
   trainer = setupTrainer({ worlds: game.worlds, order: WORLD_ORDER, getWorld: () => game.world, onRace: raceMine,

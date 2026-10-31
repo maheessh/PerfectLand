@@ -3,6 +3,8 @@
 // stage (stage.js). Served by app.py it can also race the pilots you trained there.
 
 import { createAnnunciator } from "./annunciator.js";
+import { myAIs } from "./my-ais.js";
+import { setupTrainer } from "./trainer-ui.js";
 import { setupNav } from "./nav.js";
 import { ACTIONS, F, OUTCOME_LABEL, forward, prepare } from "./nn.js";
 import { FPS, Flight, OUTCOMES } from "./sim.js";
@@ -138,15 +140,9 @@ addEventListener("message", (e) => {
   for (const frame of document.querySelectorAll(".figure-frame")) if (frame.contentWindow === e.source) frame.style.height = `${Math.ceil(e.data.height)}px`;
 });
 
-/** Where "Train your AI" goes: mission control's training panel for this world, or the setup guide. */
-function trainLink() {
-  return game.server ? `/?train=${game.world}` : `${REPO}#quick-start`;
-}
-
 function renderSpecs() {
   const w = game.worlds[game.world];
   $("spec-world").textContent = w.name;
-  $("nav-home").href = trainLink();
   $("spec-fact").textContent = w.fact;
   $("specs").replaceChildren(...specs(w).flatMap(([label, value, note]) => {
     const dt = document.createElement("dt");
@@ -171,9 +167,16 @@ function worldLine(id) {
 
 // Opponents -------------------------------------------------------------------------
 
-async function loadOpponents() {
+async function loadOpponents(prefer = null) {
   const shipped = await fetch("data/pilots.json").then((r) => r.json());
   game.opponents = shipped.map((p) => ({ ...p, source: "shipped" }));
+  // pilots trained in this browser
+  for (const ai of await myAIs.list()) {
+    if (!ai.weights) continue;
+    const b = ai.best;
+    game.opponents.push({ id: `mine/${ai.id}`, aiId: ai.id, title: `${ai.name}${b ? ` (${b.landed}/${b.flights})` : ""}`, source: "mine",
+      control: "buttons", world: ai.world, note: `Trained in this browser on ${game.worlds[ai.world]?.name || ai.world}.` });
+  }
   if (game.server) {
     try {
       const state = await fetch("/api/state").then((r) => r.json());
@@ -194,7 +197,7 @@ async function loadOpponents() {
   }
   const select = $("opponent");
   select.replaceChildren();
-  const groups = { shipped: "Ships with the game", local: "Your pilots" };
+  const groups = { mine: "My AIs (this browser)", shipped: "Ships with the game", local: "From mission control" };
   for (const [source, label] of Object.entries(groups)) {
     const list = game.opponents.filter((o) => o.source === source);
     if (!list.length) continue;
@@ -205,16 +208,22 @@ async function loadOpponents() {
   }
   const params = new URLSearchParams(location.search);
   const wanted = params.get("pilot") ? `${params.get("pilot")}/${params.get("gen") || ""}` : null;
-  const pick = game.opponents.find((o) => o.id === wanted) || game.opponents.find((o) => o.source === "local" && wanted?.startsWith(`${o.pilot}/`)) || game.opponents[0];
+  const pick = game.opponents.find((o) => o.id === prefer) || game.opponents.find((o) => o.id === wanted)
+    || game.opponents.find((o) => o.id === game.opponent?.id) || game.opponents.find((o) => o.source === "local" && wanted?.startsWith(`${o.pilot}/`)) || game.opponents[0];
   select.value = pick.id;
+  // never swap the opponent under a round that's flying (training can finish mid-round)
+  if (game.phase === "countdown" || game.phase === "flying") { select.value = game.opponent?.id ?? pick.id; return; }
+  if (!prefer && game.opponent?.id === pick.id) return;
   await setOpponent(pick.id);
 }
 
 async function setOpponent(id) {
   const o = game.opponents.find((p) => p.id === id);
   if (!o) return;
-  const url = o.source === "shipped" ? `data/${o.file}` : `/api/weights?pilot=${encodeURIComponent(o.pilot)}&gen=${o.gen}`;
-  const weights = prepare(await fetch(url).then((r) => r.json()));
+  const raw = o.source === "mine" ? (await myAIs.get(o.aiId))?.weights
+    : await fetch(o.source === "shipped" ? `data/${o.file}` : `/api/weights?pilot=${encodeURIComponent(o.pilot)}&gen=${o.gen}`).then((r) => r.json());
+  if (!raw) return;
+  const weights = prepare(raw);
   game.opponent = { ...o, weights };
   $("opponent-note").textContent = o.control === "throttle" ? "throttle" : "buttons";
   $("opponent").title = o.note || "";
@@ -382,13 +391,18 @@ function showNudge(you, ai) {
   $("nudge-text").textContent = you.outcome === "landed on pad"
     ? `So close! Could your own AI beat this one? Train it on ${world}, then race it right here.`
     : `Crashing is how the AI learned too: its first thousand landings were crashes. Train your own AI and it will land ${world} for you.`;
-  const train = $("nudge-train");
-  train.href = trainLink();
-  train.textContent = game.server ? "Train my AI" : "Train my AI ↗";
-  train.title = game.server ? "" : "Mission control trains it on your own computer, free";
-  if (game.server) train.removeAttribute("target");
-  else train.target = "_blank";
   game.lastSeed = you.seed;
+}
+
+let trainer = null;
+
+/** Race one of your browser-trained AIs, on the world it trained for. */
+async function raceMine(id) {
+  await loadOpponents(`mine/${id}`);
+  const o = game.opponents.find((x) => x.id === `mine/${id}`);
+  if (o && o.world && o.world !== game.world) selectWorld(o.world);
+  if (game.mode !== "race") $("mode").querySelector('[data-mode="race"]').click();
+  $("play-view").scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function watchReplay() {
@@ -606,6 +620,7 @@ function bindInput() {
   $("next").addEventListener("click", nextWorld);
   $("share").addEventListener("click", share);
   $("nudge-watch").addEventListener("click", watchReplay);
+  $("nudge-train").addEventListener("click", () => trainer?.openFor(game.world));
   $("slow").addEventListener("change", (e) => { game.slow = e.target.checked; });
   $("sound").checked = sound.enabled;
   $("sound").addEventListener("change", (e) => {
@@ -733,8 +748,6 @@ async function init() {
       a.removeAttribute("target");
       a.removeAttribute("title");
     }
-    const home = $("nav-home");
-    home.removeAttribute("target");
   }
   setupNav();
   const params = new URLSearchParams(location.search);
@@ -752,6 +765,8 @@ async function init() {
   stage.setWorld(game.world);
   renderSpecs();
   await loadOpponents();
+  trainer = setupTrainer({ worlds: game.worlds, order: WORLD_ORDER, getWorld: () => game.world, onRace: raceMine,
+    onSaved: () => loadOpponents() });
   addEventListener("pagehide", () => store.set("world", game.world));
   requestAnimationFrame(loop);
 }

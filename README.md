@@ -40,6 +40,10 @@ PerfectLand then takes it further than the textbook exercise:
 - **Learn it by playing.** Two hand-drawn machines you can turn round, open up and play with: a
   lander you fly and refuel, and the AI pilot's flight computer, running the real network, whose
   neurons light up as it lands. Made for kids and newcomers as much as engineers.
+- **Train your own AI in the browser.** PPO is reimplemented in plain JavaScript
+  ([`ui/ppo.js`](ui/ppo.js)) and runs in a background thread: name your pilot, pick a world, and
+  watch it go from random crashes to landings in about a minute and a half, then race it. Your AIs
+  are saved in your own browser (IndexedDB), never uploaded; export one to move it to another device.
 - **A game anyone can play.** The simulator is ported to the browser (planck.js, a
   JavaScript Box2D) and checked against the original in CI, so the trained network
   flies there too and you can race it. It is hosted for free on GitHub Pages.
@@ -199,6 +203,10 @@ and app.py serves it at `/play` too.
   the three buttons on the view. Slow motion halves the speed while you learn.
 - **Records** per world stay in your browser. **Copy my result** gives a link to the same
   terrain, so a friend can try to beat your score on it.
+- **Train your AI:** right under the game. It practises in a background thread (about 7,500 frames
+  a second on a laptop; a first landing usually comes around 500k frames), with every practice flight
+  charted live and a 10-flight test every 20k frames. **My AIs** keeps them in this browser, with race,
+  train more, export and import.
 - **Race your own pilots:** served by app.py, the opponent list includes every generation
   you trained in mission control.
 - **Learn the parts:** under the game, the hand-drawn lander and the flight computer explain
@@ -647,6 +655,9 @@ More ideas to try (these haven't been measured):
 | [`ui/sound.js`](ui/sound.js), [`ui/annunciator.js`](ui/annunciator.js) | Engine sound (Web Audio, generated) and the cockpit lamps and callouts over the 3D views. |
 | [`ui/figures/`](ui/figures/) | Hand-drawn interactive figures made with [Colorfigures](https://april-zhu.com/colorfigures): the lander you can fly and see inside. Sources in `ui/figures/src/`. |
 | [`ui/specs.js`](ui/specs.js) | The per-world spec sheet (thrust to weight, hover throttle) from the simulator's numbers. |
+| [`ui/ppo.js`](ui/ppo.js), [`ui/train-worker.js`](ui/train-worker.js) | PPO in plain JavaScript, and the background thread that trains with it. |
+| [`ui/trainer-ui.js`](ui/trainer-ui.js), [`ui/my-ais.js`](ui/my-ais.js) | The "Train your AI" section, and pilots saved in the browser (IndexedDB). |
+| [`ui/vendor/planck.mjs`](ui/vendor/planck.mjs) | planck.js 1.5.0 (MIT), the browser's physics engine, vendored so workers and tests can load it. |
 | [`ui/data/`](ui/data/) | The game's worlds and pilots (network weights as JSON), written by `export_web.py`. |
 | [`export_web.py`](export_web.py) | Puts a trained pilot into the game. |
 | [`pretrained/`](pretrained/) | The Universal pilot (150 KB), for a first visit to mission control. |
@@ -660,7 +671,6 @@ the training logs, the learning curve, and the `reward.py` snapshot.
 
 ```bash
 pip install pytest && pytest -q                   # 35 tests, about 5 s
-npm install --no-save planck@1.5.0                # once
 node --test tests/js/*.test.mjs                   # the browser port still lands like the original
 ```
 

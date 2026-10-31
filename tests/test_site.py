@@ -8,7 +8,9 @@ UI = ROOT / "ui"
 
 
 def local_imports(path):
-    return set(re.findall(r'from\s+"\./([\w.-]+\.js)"', path.read_text()))
+    """Modules a file loads: static imports and workers (new URL("./x.js", import.meta.url))."""
+    text = path.read_text()
+    return set(re.findall(r'from\s+"\./([\w.-]+\.js)"', text)) | set(re.findall(r'new URL\("\./([\w.-]+\.js)"', text))
 
 
 def test_pages_build_ships_every_module_the_game_imports():
@@ -22,6 +24,7 @@ def test_pages_build_ships_every_module_the_game_imports():
     workflow = (ROOT / ".github" / "workflows" / "pages.yml").read_text()
     shipped = set(re.findall(r"ui/([\w.-]+\.js)", workflow))
     assert needed <= shipped, f"pages.yml is missing {sorted(needed - shipped)}"
+    assert "cp -r ui/vendor" in workflow, "pages.yml must ship ui/vendor (planck.js, used by sim.js)"
 
 
 def test_game_page_uses_relative_paths():

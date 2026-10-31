@@ -41,22 +41,22 @@
     </div>
     <nav class="nav-links" aria-label="Sections">
       <a href="#top">Play</a>
+      <a href="#train">Train your AI</a>
       <a href="#lander">The lander</a>
       <a href="#how">How the AI learned</a>
-      <a href="#train">Train your own</a>
     </nav>
     <div class="nav-right">
       <a class="nav-text-link" href="https://github.com/maheessh/PerfectLand" target="_blank" rel="noopener">GitHub ↗</a>
-      <a class="btn btn-solid" id="nav-home" href="https://github.com/maheessh/PerfectLand#quick-start" target="_blank" rel="noopener">Train your AI</a>
+      <a class="btn btn-solid" id="nav-home" href="#train">Train your AI</a>
       <button class="nav-menu" id="nav-menu" aria-expanded="false" aria-controls="nav-panel"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></button>
     </div>
   </header>
   <div class="nav-panel" id="nav-panel" hidden>
     <p class="eyebrow">On this page</p>
     <a href="#top">Play</a>
+    <a href="#train">Train your AI</a>
     <a href="#lander">The lander</a>
     <a href="#how">How the AI learned</a>
-    <a href="#train">Train your own</a>
     <p class="eyebrow">PerfectLand</p>
     <a href="https://github.com/maheessh/PerfectLand#quick-start" id="panel-mc" target="_blank" rel="noopener">Mission control ↗</a>
     <a href="https://github.com/maheessh/PerfectLand" target="_blank" rel="noopener">GitHub ↗</a>
@@ -96,7 +96,7 @@
               <div class="nudge" id="nudge" hidden>
                 <p id="nudge-text"></p>
                 <div class="nudge-actions">
-                  <a class="btn btn-solid nudge-train" id="nudge-train" href="#">Train my AI</a>
+                  <button class="btn btn-solid nudge-train" id="nudge-train">Train my AI</button>
                   <button class="btn btn-light btn-outline" id="nudge-watch">Watch the AI do it</button>
                 </div>
               </div>
@@ -173,6 +173,59 @@
       </aside>
     </div>
 
+    <section class="section trainer-section" id="train">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Train your own AI</p>
+          <h2>Teach your own pilot.</h2>
+          <p>Right here, in your browser. Your AI starts out knowing nothing, crashes a lot, and learns to land in a minute or two. It's saved in this browser only: nobody else sees it, and you can race it, train it more, or export it.</p>
+        </div>
+      </div>
+      <div class="trainer-grid">
+        <article class="card trainer-card">
+          <div id="tr-setup" class="tr-setup">
+            <div class="tr-fields">
+              <label><span>Your name</span><input id="tr-player" type="text" maxlength="30" placeholder="optional" autocomplete="nickname"></label>
+              <label><span>Name your AI</span><input id="tr-ai-name" type="text" maxlength="40"></label>
+              <label><span>World to practise on</span><select id="tr-world"></select></label>
+            </div>
+            <p class="tr-label">How long to practise</p>
+            <div class="tr-lengths" id="tr-lengths"></div>
+            <div class="tr-go">
+              <button class="btn btn-solid btn-light" id="tr-start">Start training</button>
+              <p>It trains in the background while you play. Keep this tab open.</p>
+            </div>
+          </div>
+          <div id="tr-live" class="tr-live" hidden>
+            <div class="tr-top"><h3 id="tr-title">Training</h3><button class="btn btn-light btn-outline" id="tr-stop">Stop and save</button></div>
+            <div class="progress tr-progress"><span id="tr-bar"></span></div>
+            <p class="tr-status" id="tr-status"></p>
+            <dl class="tr-stats">
+              <div><dt>Practice</dt><dd id="tr-frames">–</dd></div>
+              <div><dt>Avg score</dt><dd id="tr-avg">–</dd></div>
+              <div><dt>Test landings</dt><dd id="tr-test">–</dd></div>
+            </dl>
+            <div class="tr-chart-wrap"><canvas id="tr-chart" aria-label="Every practice flight as a dot; blue bars are test landings"></canvas></div>
+            <p class="tr-legend"><i style="background:#3987e5"></i>landed <i style="background:#d95926"></i>off the pad <i style="background:#199e70"></i>ran out of time <i style="background:#6e6d68"></i>crashed · white line: average score · blue bars: test landings out of 10</p>
+            <div class="tr-done" id="tr-done" hidden>
+              <p id="tr-done-text"></p>
+              <div class="tr-done-actions">
+                <button class="btn btn-solid nudge-train" id="tr-race">Race it now</button>
+                <button class="btn btn-light btn-outline" id="tr-more">Train it more</button>
+                <button class="btn btn-light btn-outline" id="tr-new">Train a new one</button>
+              </div>
+            </div>
+          </div>
+        </article>
+        <aside class="card olive-card my-ais">
+          <div class="side-row"><p class="eyebrow">My AIs</p><button class="link-btn" id="tr-import">Import</button></div>
+          <input type="file" id="tr-file" accept=".json,application/json" hidden>
+          <ul class="ai-list" id="tr-list"></ul>
+          <p class="side-note">Saved in this browser only. Export one to move it to another device.</p>
+        </aside>
+      </div>
+    </section>
+
     <section class="section lander-section" id="lander">
       <div class="section-head">
         <div>
@@ -243,11 +296,11 @@
       </div>
     </section>
 
-    <section class="section train-cta" id="train">
+    <section class="section train-cta" id="more">
       <div class="cta-card">
         <div>
-          <p class="eyebrow">Train your own</p>
-          <h2>Watch a pilot learn, live.</h2>
+          <p class="eyebrow">Go further</p>
+          <h2>Mission control.</h2>
           <p>PerfectLand's mission control trains pilots on your computer while you watch: live charts of every attempt, a 3D flight deck, and a look inside the network as it decides. One network can learn every world at once.</p>
           <div class="cta-actions">
             <a class="btn btn-solid" href="https://github.com/maheessh/PerfectLand" target="_blank" rel="noopener">Get it on GitHub ↗</a>

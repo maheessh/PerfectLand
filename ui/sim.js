@@ -8,7 +8,7 @@
 // Frames come out in the same layout as the server's recorded flights (FRAME_FIELDS in
 // lab.py), so the 3D stage and the neuron view play them without knowing the difference.
 
-import { Box, Edge, Polygon, RevoluteJoint, Vec2, World } from "planck";
+import { Box, Edge, Polygon, RevoluteJoint, Vec2, World } from "./vendor/planck.mjs"; // planck.js 1.5.0, MIT
 
 export const FPS = 50;
 const SCALE = 30;

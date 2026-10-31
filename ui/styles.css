@@ -848,3 +848,58 @@ kbd {
 .nudge-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .nudge .nudge-train { background: var(--signal); border-color: var(--signal); color: #fff; }
 .nudge .nudge-train:hover { background: #d4561f; }
+
+/* Train your own AI (play.html) --------------------------------------------------------- */
+.trainer-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
+.card.trainer-card { padding: 26px 28px 28px; }
+.tr-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.tr-fields label { display: grid; gap: 6px; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--on-card-3); }
+.tr-fields input, .tr-fields select {
+  height: 40px; padding: 0 12px; border: 1px solid rgba(255, 255, 255, 0.3); background: transparent; color: #fff;
+  font: 15px var(--font); letter-spacing: 0; text-transform: none;
+}
+.tr-fields input::placeholder { color: rgba(255, 255, 255, 0.4); }
+.tr-fields input:focus, .tr-fields select:focus { outline: none; border-color: #fff; }
+.tr-fields option { color: #000; }
+.tr-label { margin: 22px 0 8px; font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--on-card-3); }
+.tr-lengths { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tr-lengths button { display: grid; gap: 3px; padding: 12px 14px; border: 1px solid rgba(255, 255, 255, 0.25); background: transparent; color: #fff; text-align: left; cursor: pointer; }
+.tr-lengths button:hover { border-color: #fff; }
+.tr-lengths button.on { background: #fff; color: #000; border-color: #fff; }
+.tr-lengths b { font-size: 15px; font-weight: 600; }
+.tr-lengths span { font: 11.5px/1.4 var(--mono); opacity: 0.7; }
+.tr-go { display: flex; align-items: center; gap: 16px; margin-top: 22px; flex-wrap: wrap; }
+.tr-go p { margin: 0; font-size: 13px; color: var(--on-card-3); }
+.tr-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.tr-top h3 { border: 0; padding: 0; }
+.tr-progress { margin: 16px 0 10px; height: 4px; }
+.tr-progress span { background: var(--signal); }
+.tr-status { margin: 0; font: 12.5px/1.5 var(--mono); color: var(--on-card-2); }
+.tr-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 18px 0 0; border-top: 1px solid var(--card-hair); }
+.tr-stats div { padding: 12px 0 0; }
+.tr-stats dt { font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--on-card-3); }
+.tr-stats dd { margin: 4px 0 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+.tr-chart-wrap { position: relative; height: 230px; margin-top: 16px; }
+.tr-chart-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.tr-legend { margin: 8px 0 0; font-size: 11.5px; color: var(--on-card-3); }
+.tr-legend i { display: inline-block; width: 8px; height: 8px; margin: 0 4px 0 10px; border-radius: 50%; }
+.tr-legend i:first-child { margin-left: 0; }
+.tr-done { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--card-hair); }
+.tr-done p { margin: 0; font-size: 15px; color: #fff; }
+.tr-done-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.card.my-ais { padding: 22px 22px 24px; }
+.link-btn { background: none; border: 0; padding: 0; color: rgba(255, 255, 255, 0.8); font-size: 13px; cursor: pointer; text-decoration: underline; }
+.ai-list { list-style: none; margin: 4px 0 14px; padding: 0; }
+.ai-list li { padding: 12px 0; border-top: 1px solid rgba(255, 255, 255, 0.18); }
+.ai-list li.empty { font-size: 13.5px; line-height: 1.5; color: rgba(255, 255, 255, 0.8); }
+.ai-head { display: flex; justify-content: space-between; gap: 10px; }
+.ai-head strong { font-size: 15px; font-weight: 600; }
+.ai-head .mono { font-size: 13px; }
+.ai-meta { margin: 3px 0 0; font-size: 12px; color: rgba(255, 255, 255, 0.65); }
+.ai-actions { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
+.ai-actions button { background: none; border: 0; padding: 0; color: #fff; font-size: 13px; cursor: pointer; }
+.ai-actions button:hover { text-decoration: underline; }
+.ai-actions .danger { color: #ffb4a8; }
+@media (max-width: 1100px) { .trainer-grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .tr-fields, .tr-lengths { grid-template-columns: 1fr; } .card.trainer-card { padding: 20px; } }
+.tr-done .nudge-train { background: var(--signal); border-color: var(--signal); color: #fff; }

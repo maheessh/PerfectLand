@@ -18,7 +18,6 @@ Or open the repository in GitHub Codespaces: it installs everything and starts m
 
 ```bash
 pytest -q                                         # simulator, reward, lab and server (about 5 s)
-npm install --no-save planck@1.5.0                # once, for the browser simulator's tests
 node --test tests/js/*.test.mjs                   # the browser game flies like the real simulator
 ```
 

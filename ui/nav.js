@@ -19,6 +19,11 @@ export function setupNav() {
       else a.removeAttribute("aria-current");
     }
   };
+  // The bar is see-through over the game's hero and turns solid once you scroll.
+  const bar = document.querySelector(".nav");
+  const solid = () => bar?.classList.toggle("scrolled", scrollY > 24);
+  addEventListener("scroll", solid, { passive: true });
+  solid();
   addEventListener("scroll", mark, { passive: true });
   addEventListener("resize", mark);
   mark();

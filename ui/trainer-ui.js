@@ -1,8 +1,10 @@
 // "Train your own AI", in the game page: pick a world and how long, watch your pilot learn in a
 // background thread, then race it. Pilots are saved in this browser (my-ais.js), so they're yours.
 
+import { createBrain } from "./brain.js";
 import { createFlightScreen } from "./flight-screen.js";
 import { myAIs, profile } from "./my-ais.js";
+import { ACTIONS, prepare } from "./nn.js";
 import { WORLD_DOT } from "./worlds.js";
 
 const $ = (id) => document.getElementById(id);
@@ -34,16 +36,44 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
     d.firstChild.textContent = label;
     return d;
   }));
-  let lastCoords = 0;
+  // The brain: the same 3D network view as mission control, lit by the flight on the screen.
+  const brain = createBrain({ canvas: $("tr-brain-canvas"), labels: $("tr-brain-labels"), view: $("tr-brain-view") });
+  const decisionRows = ACTIONS.map((name) => {
+    const row = document.createElement("div");
+    row.className = "prob-row";
+    row.innerHTML = "<span></span><span class=\"bar\"><span></span></span><span class=\"mono\">–</span>";
+    row.firstChild.textContent = name;
+    return row;
+  });
+  $("tr-decision").replaceChildren(...decisionRows);
+  let lastCoords = 0, lastBrain = 0;
   const screen = createFlightScreen($("tr-stage"), {
     worlds,
-    onFrame(f) {
+    watch: [$("tr-brain-view")], // keep flying while you look at the brain
+    onFrame(f, decision) {
       const now = performance.now();
+      if (decision && !el.live.hidden) {
+        if (now - lastBrain > 50) { lastBrain = now; brain.update(decision); }
+        brain.render();
+      }
       if (now - lastCoords < 100) return;
       lastCoords = now;
       COORDS.forEach(([, show], i) => { el.coords.children[i].lastChild.textContent = show(f.obs[i]); });
+      if (!decision) return;
+      decisionRows.forEach((row, i) => {
+        row.classList.toggle("chosen", i === decision.action);
+        row.children[1].firstChild.style.width = `${decision.probs[i] * 100}%`;
+        row.lastChild.textContent = `${Math.round(decision.probs[i] * 100)}%`;
+      });
+      $("tr-critic").innerHTML = `It expects <b>${decision.value >= 0 ? "+" : ""}${decision.value.toFixed(0)}</b> more points from here.`;
     },
   });
+  /** Fly these weights on the screen and show them in the brain (null: random button presses). */
+  function fly(weights) {
+    const prepared = weights ? prepare(weights) : null;
+    screen.setPilot(prepared);
+    if (prepared) brain.setNetwork(prepared);
+  }
   const tag = (text) => { $("tr-view-tag").textContent = text; };
   const IDLE_TAG = "A brand-new AI · pressing buttons at random";
   const planets = $("tr-planets");
@@ -110,11 +140,12 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
     const conditions = { ...Object.fromEntries(PHYSICS.map((k) => [k, w[k]])), start_height: 10 };
     state.pilot = pilot;
     screen.setWorld(pilot.world);
-    screen.setPilot(existing?.weights || null);
+    fly(existing?.weights || null);
     tag(existing ? `${pilot.name} · its best so far` : `${pilot.name} · random button presses at first`);
     state.tests = pilot.history.map(([frames, landed, flights, score]) => ({ frames, landed, flights, score }));
     state.framesBefore = pilot.frames;
     state.dots = [];
+    state.flights = 0;
     state.last = null;
     el.title.textContent = existing ? `Training ${pilot.name} more` : `Training ${pilot.name}`;
     el.setup.hidden = true;
@@ -133,6 +164,11 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
     const p = state.pilot;
     if (m.type === "progress") {
       state.last = m;
+      state.flights += m.flights.length;
+      if (m.snapshot) {
+        fly(m.snapshot);
+        tag(`${p.name} right now · ${((state.framesBefore + m.frames) / 1000).toFixed(0)}k frames of practice`);
+      }
       for (const [score, outcome] of m.flights) state.dots.push([p.frames + m.frames, score, outcome]);
       if (state.dots.length > 4000) state.dots.splice(0, state.dots.length - 4000);
       el.bar.style.width = `${(100 * m.frames) / m.goal}%`;
@@ -142,10 +178,6 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
       draw();
     } else if (m.type === "test") {
       state.tests.push({ frames: state.framesBefore + m.frames, landed: m.landed, flights: m.flights, score: m.score });
-      if (m.snapshot) {
-        screen.setPilot(m.snapshot);
-        tag(`${p.name} after ${((state.framesBefore + m.frames) / 1000).toFixed(0)}k frames · landed ${m.landed} of ${m.flights} tests`);
-      }
       if (m.weights && (!p.best || m.landed > p.best.landed || (m.landed === p.best.landed && m.score > p.best.score))) {
         p.best = { landed: m.landed, flights: m.flights, score: Math.round(m.score * 10) / 10, frames: state.framesBefore + m.frames };
         p.weights = m.weights;
@@ -170,7 +202,7 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
     await renderList();
     onSaved(p);
     const b = p.best;
-    screen.setPilot(p.weights);
+    fly(p.weights);
     tag(`${p.name} · its best version${b ? ` (${b.landed} of ${b.flights} landed)` : ""}`);
     el.status.textContent = `${stopped ? "Stopped" : "Done"} after ${(p.frames / 1000).toFixed(0)}k frames of practice. Saved in this browser.`;
     el.done.hidden = false;
@@ -228,6 +260,10 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
     const lastTest = state.tests.at(-1);
     $("tr-test").textContent = lastTest ? `${lastTest.landed}/${lastTest.flights}` : "–";
     $("tr-avg").textContent = state.last?.avgScore != null ? Math.round(state.last.avgScore) : "–";
+    $("tr-flights").textContent = state.flights ? state.flights.toLocaleString() : "–";
+    $("tr-rate").textContent = state.last ? `${Math.round(state.last.landRate * 100)}%` : "–";
+    const best = state.tests.reduce((b, t) => (!b || t.landed > b.landed ? t : b), null);
+    $("tr-best").textContent = best ? `${best.landed}/${best.flights}` : "–";
     $("tr-frames").textContent = `${(((state.framesBefore || 0) + (state.last?.frames || 0)) / 1000).toFixed(0)}k`;
   }
   new ResizeObserver(draw).observe(el.chart);
@@ -276,7 +312,7 @@ export function setupTrainer({ worlds, order, onRace, onSaved, getWorld }) {
   function toIdle() {
     el.setup.hidden = false;
     el.live.hidden = true;
-    screen.setPilot(null);
+    fly(null);
     tag(IDLE_TAG);
     pickWorld(el.world.value);
   }

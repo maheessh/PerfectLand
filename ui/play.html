@@ -12,7 +12,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23010101' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M6 16h12'/%3E%3Ccircle cx='12' cy='9.5' r='2.2' fill='%23010101' stroke='none'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300..800&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gloock&family=Inter:wght@300..800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="styles.css">
   <script type="importmap">
     {
@@ -26,159 +26,183 @@
   <script type="module" src="play.js"></script>
 </head>
 <body class="play-page">
-  <header class="nav">
-    <div class="nav-left">
-    <a class="brand" href="#top" aria-label="PerfectLand home">
+  <header class="nav nav-space">
+    <a class="brand wordmark" href="#top" aria-label="PerfectLand home">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <circle cx="12" cy="12" r="10"/><path d="M6 16h12"/><circle cx="12" cy="9.5" r="2.2" fill="currentColor" stroke="none"/>
       </svg>
-      <span>PERFECTLAND</span>
+      <span class="wordmark-text"><b>PERFECTLAND</b><i>rocket landing school</i></span>
     </a>
-      <div class="mode-switch" role="navigation" aria-label="PerfectLand">
-        <a href="#top" class="on" aria-current="page">Play</a>
-        <a href="./" class="switch-mc" id="switch-mc">Mission control</a>
-      </div>
-    </div>
-    <nav class="nav-links" aria-label="Sections">
-      <a href="#top">Play</a>
-      <a href="#lander">The lander</a>
-      <a href="#how">How the AI learned</a>
-    </nav>
-    <div class="nav-right">
-      <button class="nav-menu" id="nav-menu" aria-expanded="false" aria-controls="nav-panel"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span></button>
-    </div>
+    <button class="nav-menu" id="nav-menu" aria-label="Menu" aria-expanded="false" aria-controls="nav-panel"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg></button>
   </header>
   <div class="nav-panel" id="nav-panel" hidden>
-    <p class="eyebrow">On this page</p>
-    <a href="#top">Play</a>
-    <a href="#lander">The lander</a>
-    <a href="#how">How the AI learned</a>
-    <p class="eyebrow">PerfectLand</p>
-    <a href="./" id="panel-mc">Mission control</a>
+    <nav aria-label="Sections">
+      <a href="#play"><span>01</span>Play</a>
+      <a href="#train"><span>02</span>Teach your pilot</a>
+      <a href="#worlds"><span>03</span>Thirteen worlds</a>
+      <a href="#lander"><span>04</span>The lander</a>
+      <a href="#how"><span>05</span>How the AI learned</a>
+      <a href="./" id="panel-mc"><span>06</span>Mission control</a>
+    </nav>
   </div>
 
-  <main id="top">
-    <section class="play-head">
-      <div class="play-title">
-        <p class="eyebrow">The game · runs in your browser</p>
+  <main>
+    <section class="hero-space" id="top">
+      <canvas id="globe" aria-label="The world you're landing on: drag to spin it"></canvas>
+      <div class="hero-center">
         <h1>Can you land it?</h1>
-        <p class="lede">Set a rocket down on the pad on 13 worlds with real gravity. A neural network that taught itself to land flies the same terrain beside you, with the same gusts and the same starting push.</p>
-        <dl class="play-tally" id="tally">
-          <div><dt>Rounds</dt><dd id="tally-rounds">0</dd></div>
-          <div><dt>You beat the AI</dt><dd id="tally-wins">0</dd></div>
-          <div><dt>Worlds landed</dt><dd id="tally-worlds">0 / 13</dd></div>
-        </dl>
+        <p class="hero-sub">Land a rocket on 13 worlds, race an AI that taught itself to fly, then teach your own.</p>
+        <div class="hero-actions">
+          <a class="btn btn-pill btn-white" href="#play">Play now</a>
+          <a class="btn btn-pill btn-line" href="#train">Teach your own AI</a>
+        </div>
       </div>
-      <div class="globe-wrap play-globe">
-        <canvas id="globe" aria-label="The world you're landing on: drag to spin it"></canvas>
-        <div class="globe-info">
-          <div class="globe-nav">
-            <button class="icon-btn ink" id="world-prev" aria-label="Previous world">←</button>
-            <div class="globe-title"><p class="eyebrow">World</p><p class="world-name" id="world-name">Classic</p></div>
-            <button class="icon-btn ink" id="world-next" aria-label="Next world">→</button>
-          </div>
-          <p class="world-fact" id="world-fact"></p>
-          <dl class="world-stats" id="world-stats"></dl>
+      <div class="hero-bottom">
+        <p class="built-with"><span class="bw-label">Built with:</span>
+          <span class="bw bw-gym">Gymnasium</span><span class="bw bw-planck">planck.js</span><span class="bw bw-three">three.js</span><span class="bw bw-sb3">Stable-Baselines3</span><span class="bw bw-torch">PyTorch</span></p>
+        <div class="globe-nav hero-world">
+          <button class="icon-btn" id="world-prev" aria-label="Previous world">←</button>
+          <div class="globe-title"><p class="eyebrow">World</p><p class="world-name" id="world-name">Classic</p></div>
+          <button class="icon-btn" id="world-next" aria-label="Next world">→</button>
         </div>
       </div>
     </section>
 
-    <div class="world-picker" id="world-picker" role="tablist" aria-label="Worlds"></div>
+    <section class="intro-space">
+      <p class="intro-statement">PerfectLand is a landing school for rockets, where you and a neural network learn to touch down on every world in the solar system.</p>
+      <div class="steps3">
+        <article>
+          <h3>Practise</h3>
+          <p>Fly the lander yourself, from Mercury's bare rock to Jupiter's crushing pull. Real gravity, real wind.</p>
+          <img src="media/practise.jpg" alt="The lander coming down to the pad on Mars" loading="lazy" width="900" height="600">
+        </article>
+        <article>
+          <h3>Learn</h3>
+          <p>Watch an AI start out knowing nothing and teach itself, live in your browser. See every neuron fire.</p>
+          <img src="media/learn.jpg" alt="The AI's network: 8 sensors, two layers of 64 neurons and 4 buttons, glowing" loading="lazy" width="900" height="600">
+        </article>
+        <article>
+          <h3>Land</h3>
+          <p>Race it to the pad. A trained pilot lands nearly every time, on every world. Can you beat it?</p>
+          <img src="media/land.jpg" alt="The lander touching down on the Moon, with Earth in the sky" loading="lazy" width="900" height="600">
+        </article>
+      </div>
+    </section>
 
-    <div class="play-grid">
-      <article class="card play-main">
-        <div class="deck-view play-view" id="play-view">
-          <canvas id="stage" aria-label="The landing site"></canvas>
-          <div class="view-top">
-            <p class="view-caption" id="caption">Classic · race the AI</p>
-          </div>
-          <div class="play-overlay" id="overlay">
-            <div class="overlay-card" id="overlay-card">
-              <p class="eyebrow" id="overlay-eyebrow">Classic · 10 m/s²</p>
-              <p class="overlay-title" id="overlay-title">Land between the flags.</p>
-              <p class="overlay-text" id="overlay-text">Slow down before you touch, keep it upright, and come to rest on the pad.</p>
-              <div class="overlay-actions" id="overlay-actions">
-                <button class="btn btn-solid btn-light" id="launch">Launch <kbd>Space</kbd></button>
-              </div>
-              <div class="nudge" id="nudge" hidden>
-                <p id="nudge-text"></p>
-                <div class="nudge-actions">
-                  <button class="btn btn-solid nudge-train" id="nudge-train">Train my AI</button>
-                  <button class="btn btn-light btn-outline" id="nudge-watch">Watch the AI do it</button>
+    <section class="section play-section" id="play">
+      <div class="play-head">
+        <div class="play-title">
+          <h2>Race the AI.</h2>
+          <p class="lede">Same terrain, same gusts, same starting push. A neural network flies beside you: land on the pad before it does.</p>
+          <dl class="play-tally" id="tally">
+            <div><dt>Rounds</dt><dd id="tally-rounds">0</dd></div>
+            <div><dt>You beat the AI</dt><dd id="tally-wins">0</dd></div>
+            <div><dt>Worlds landed</dt><dd id="tally-worlds">0 / 13</dd></div>
+          </dl>
+        </div>
+        <div class="play-world">
+          <p class="world-fact" id="world-fact"></p>
+          <dl class="world-stats" id="world-stats"></dl>
+        </div>
+      </div>
+
+      <div class="world-picker" id="world-picker" role="tablist" aria-label="Worlds"></div>
+
+      <div class="play-grid">
+        <article class="card play-main">
+          <div class="deck-view play-view" id="play-view">
+            <canvas id="stage" aria-label="The landing site"></canvas>
+            <div class="view-top">
+              <p class="view-caption" id="caption">Classic · race the AI</p>
+            </div>
+            <div class="play-overlay" id="overlay">
+              <div class="overlay-card" id="overlay-card">
+                <p class="eyebrow" id="overlay-eyebrow">Classic · 10 m/s²</p>
+                <p class="overlay-title" id="overlay-title">Land between the flags.</p>
+                <p class="overlay-text" id="overlay-text">Slow down before you touch, keep it upright, and come to rest on the pad.</p>
+                <div class="overlay-actions" id="overlay-actions">
+                  <button class="btn btn-solid btn-light" id="launch">Launch <kbd>Space</kbd></button>
+                </div>
+                <div class="nudge" id="nudge" hidden>
+                  <p id="nudge-text"></p>
+                  <div class="nudge-actions">
+                    <button class="btn btn-solid nudge-train" id="nudge-train">Train my AI</button>
+                    <button class="btn btn-light btn-outline" id="nudge-watch">Watch the AI do it</button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-          <div class="annunciator play-lamps" id="annunciator"></div>
-          <p class="callout" id="callout" aria-live="polite"></p>
-          <div class="countdown" id="countdown" hidden></div>
-          <div class="touch-pad" id="touch-pad" aria-label="Engines">
-            <div>
-              <button data-engine="left" aria-label="Left engine: push left">◀</button>
-              <button data-engine="right" aria-label="Right engine: push right">▶</button>
+            <div class="annunciator play-lamps" id="annunciator"></div>
+            <p class="callout" id="callout" aria-live="polite"></p>
+            <div class="countdown" id="countdown" hidden></div>
+            <div class="touch-pad" id="touch-pad" aria-label="Engines">
+              <div>
+                <button data-engine="left" aria-label="Left engine: push left">◀</button>
+                <button data-engine="right" aria-label="Right engine: push right">▶</button>
+              </div>
+              <button data-engine="main" aria-label="Main engine: push up">▲</button>
             </div>
-            <button data-engine="main" aria-label="Main engine: push up">▲</button>
           </div>
-        </div>
-        <dl class="telemetry play-hud">
-          <div><dt>Altitude</dt><dd id="h-alt">–</dd></div>
-          <div><dt>Fall speed</dt><dd id="h-vy">–</dd></div>
-          <div><dt>Drift</dt><dd id="h-vx">–</dd></div>
-          <div><dt>Tilt</dt><dd id="h-tilt">–</dd></div>
-          <div><dt>Time left</dt><dd id="h-time">–</dd></div>
-          <div><dt>Your score</dt><dd id="h-score">–</dd></div>
-          <div class="ai"><dt>AI score</dt><dd id="h-ai">–</dd></div>
-        </dl>
-      </article>
+          <dl class="telemetry play-hud">
+            <div><dt>Altitude</dt><dd id="h-alt">–</dd></div>
+            <div><dt>Fall speed</dt><dd id="h-vy">–</dd></div>
+            <div><dt>Drift</dt><dd id="h-vx">–</dd></div>
+            <div><dt>Tilt</dt><dd id="h-tilt">–</dd></div>
+            <div><dt>Time left</dt><dd id="h-time">–</dd></div>
+            <div><dt>Your score</dt><dd id="h-score">–</dd></div>
+            <div class="ai"><dt>AI score</dt><dd id="h-ai">–</dd></div>
+          </dl>
+        </article>
 
-      <aside class="card olive-card play-side">
-        <section class="side-block">
-          <p class="eyebrow">Mode</p>
-          <div class="seg seg-light" id="mode" role="radiogroup" aria-label="Mode">
-            <button data-mode="race" class="on" role="radio" aria-checked="true">Race the AI</button>
-            <button data-mode="solo" role="radio" aria-checked="false">Fly solo</button>
-            <button data-mode="watch" role="radio" aria-checked="false">Watch the AI</button>
-          </div>
-        </section>
+        <aside class="card olive-card play-side">
+          <section class="side-block">
+            <p class="eyebrow">Mode</p>
+            <div class="seg seg-light" id="mode" role="radiogroup" aria-label="Mode">
+              <button data-mode="race" class="on" role="radio" aria-checked="true">Race the AI</button>
+              <button data-mode="solo" role="radio" aria-checked="false">Fly solo</button>
+              <button data-mode="watch" role="radio" aria-checked="false">Watch the AI</button>
+            </div>
+          </section>
 
-        <section class="side-block">
-          <div class="side-row"><p class="eyebrow">Opponent</p><span class="side-note" id="opponent-note"></span></div>
-          <select id="opponent" aria-label="Opponent"></select>
-        </section>
+          <section class="side-block">
+            <div class="side-row"><p class="eyebrow">Opponent</p><span class="side-note" id="opponent-note"></span></div>
+            <select id="opponent" aria-label="Opponent"></select>
+          </section>
 
-        <section class="side-block" id="controls-block">
-          <p class="eyebrow">Controls</p>
-          <p class="touch-note">Hold the buttons on the view: ◀ ▶ push the rocket left and right, ▲ fires the main engine.</p>
-          <ul class="keys">
-            <li><span><kbd>↑</kbd><kbd>W</kbd></span>Main engine, pushes up</li>
-            <li><span><kbd>←</kbd><kbd>A</kbd></span>Left engine, pushes left</li>
-            <li><span><kbd>→</kbd><kbd>D</kbd></span>Right engine, pushes right</li>
-            <li><span><kbd>R</kbd></span>Fly this world again</li>
-            <li><span><kbd>N</kbd></span>Next world</li>
-          </ul>
-          <div class="toggles">
-            <label class="toggle"><input type="checkbox" id="slow"> Slow motion (half speed)</label>
-            <label class="toggle"><input type="checkbox" id="sound"> Engine sound</label>
-          </div>
-        </section>
+          <section class="side-block" id="controls-block">
+            <p class="eyebrow">Controls</p>
+            <p class="touch-note">Hold the buttons on the view: ◀ ▶ push the rocket left and right, ▲ fires the main engine.</p>
+            <ul class="keys">
+              <li><span><kbd>↑</kbd><kbd>W</kbd></span>Main engine, pushes up</li>
+              <li><span><kbd>←</kbd><kbd>A</kbd></span>Left engine, pushes left</li>
+              <li><span><kbd>→</kbd><kbd>D</kbd></span>Right engine, pushes right</li>
+              <li><span><kbd>R</kbd></span>Fly this world again</li>
+              <li><span><kbd>N</kbd></span>Next world</li>
+            </ul>
+            <div class="toggles">
+              <label class="toggle"><input type="checkbox" id="slow"> Slow motion (half speed)</label>
+              <label class="toggle"><input type="checkbox" id="sound"> Engine sound</label>
+            </div>
+          </section>
 
-        <section class="side-block" id="decision-block" hidden>
-          <p class="eyebrow">The AI's decision, this frame</p>
-          <div id="decision"></div>
-          <p class="side-note" id="critic"></p>
-        </section>
+          <section class="side-block" id="decision-block" hidden>
+            <p class="eyebrow">The AI's decision, this frame</p>
+            <div id="decision"></div>
+            <p class="side-note" id="critic"></p>
+          </section>
 
-        <section class="side-block" id="result-block" hidden>
-          <p class="eyebrow">Last round</p>
-          <table class="versus" id="versus"></table>
-          <div class="side-actions">
-            <button class="btn btn-light btn-solid" id="again">Fly again</button>
-            <button class="btn btn-light btn-outline" id="next">Next world</button>
-            <button class="btn btn-light btn-outline wide" id="share">Copy my result</button>
-          </div>
-        </section>
-      </aside>
-    </div>
+          <section class="side-block" id="result-block" hidden>
+            <p class="eyebrow">Last round</p>
+            <table class="versus" id="versus"></table>
+            <div class="side-actions">
+              <button class="btn btn-light btn-solid" id="again">Fly again</button>
+              <button class="btn btn-light btn-outline" id="next">Next world</button>
+              <button class="btn btn-light btn-outline wide" id="share">Copy my result</button>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </section>
 
     <section class="section trainer-section" id="train">
       <div class="section-head">
@@ -208,10 +232,27 @@
             <div class="progress tr-progress"><span id="tr-bar"></span></div>
             <p class="tr-status" id="tr-status"></p>
             <dl class="tr-stats">
-              <div><dt>Practice</dt><dd id="tr-frames">–</dd></div>
+              <div><dt>Frames</dt><dd id="tr-frames">–</dd></div>
+              <div><dt>Flights</dt><dd id="tr-flights">–</dd></div>
+              <div><dt>Landing rate</dt><dd id="tr-rate">–</dd></div>
               <div><dt>Avg score</dt><dd id="tr-avg">–</dd></div>
-              <div><dt>Test landings</dt><dd id="tr-test">–</dd></div>
+              <div><dt>Last test</dt><dd id="tr-test">–</dd></div>
+              <div><dt>Best test</dt><dd id="tr-best">–</dd></div>
             </dl>
+            <div class="tr-brain">
+              <div class="tr-brain-view" id="tr-brain-view">
+                <canvas id="tr-brain-canvas" aria-label="The AI's neurons, firing on this frame"></canvas>
+                <div class="brain-labels" id="tr-brain-labels"></div>
+                <p class="view-caption tr-view-tag">Its brain, right now</p>
+              </div>
+              <div class="tr-decide">
+                <p class="tr-label">What it's choosing</p>
+                <div id="tr-decision"></div>
+                <p class="critic" id="tr-critic"></p>
+                <p class="tr-brain-note">8 numbers go in on the left and 4 buttons come out on the right. Orange lines push a button up, blue lines push it down. Every few seconds training nudges thousands of them.</p>
+              </div>
+            </div>
+            <p class="tr-label">Every practice flight</p>
             <div class="tr-chart-wrap"><canvas id="tr-chart" aria-label="Every practice flight as a dot; blue bars are test landings"></canvas></div>
             <p class="tr-legend"><i style="background:#3987e5"></i>landed <i style="background:#d95926"></i>missed the pad <i style="background:#199e70"></i>ran out of time <i style="background:#6e6d68"></i>crashed</p>
             <div class="tr-done" id="tr-done" hidden>
@@ -277,11 +318,11 @@
       </div>
     </section>
 
-    <section class="section records-section">
+    <section class="section records-section" id="worlds">
       <div class="section-head">
         <div>
-          <p class="eyebrow">Your records</p>
-          <h2>Thirteen worlds to land on.</h2>
+          <p class="eyebrow">Mission profiles</p>
+          <h2>Thirteen worlds.</h2>
           <p>Your best score on each world next to the AI's, kept in this browser. 200 points is a good landing; the AI usually scores 250 to 290.</p>
         </div>
         <button class="btn btn-outline" id="reset-records">Clear my records</button>
@@ -323,8 +364,8 @@
     <section class="section train-cta" id="more">
       <div class="cta-card">
         <div>
-          <p class="eyebrow">Go further</p>
-          <h2>Mission control.</h2>
+          <p class="eyebrow">Mission control</p>
+          <h2>Go further.</h2>
           <p>PerfectLand's mission control trains pilots on your computer while you watch: live charts of every attempt, a 3D flight deck, and a look inside the network as it decides. One network can learn every world at once.</p>
           <div class="cta-actions">
             <a class="btn btn-solid" href="https://github.com/maheessh/PerfectLand" target="_blank" rel="noopener">Get it on GitHub ↗</a>
@@ -343,7 +384,7 @@ python app.py</code></pre>
 
   <footer class="footer">
     <div class="footer-bottom footer-solo">
-      <span>PerfectLand · MIT license</span>
+      <span>© 2026 PerfectLand · MIT license</span>
       <span>Physics: <a href="https://gymnasium.farama.org/environments/box2d/lunar_lander/" target="_blank" rel="noopener">Gymnasium Lunar Lander</a> on <a href="https://piqnt.com/planck.js/" target="_blank" rel="noopener">planck.js</a> · 3D: <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a></span>
     </div>
   </footer>

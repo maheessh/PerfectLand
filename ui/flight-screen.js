@@ -1,6 +1,7 @@
 // The screen in "Teach your own pilot": a rocket flying over the world you picked, in the same
 // 3D stage as the game. Before training it flies at random (an AI that knows nothing); while
-// training it flies the newest test snapshot, so you watch it get better.
+// training it flies the network as it is right now (a new snapshot every few seconds), so you watch
+// it get better.
 
 import { forward, prepare } from "./nn.js";
 import { FPS, Flight } from "./sim.js";
@@ -9,7 +10,7 @@ import { createStage } from "./stage.js";
 const STEP = 1 / FPS;
 const PHYSICS = ["gravity", "enable_wind", "wind_power", "turbulence_power", "atmosphere", "engine_power"];
 
-export function createFlightScreen(canvas, { worlds, onFrame }) {
+export function createFlightScreen(canvas, { worlds, onFrame, watch = [] }) {
   const stage = createStage(canvas);
   stage.options.showTrails = false;
   stage.options.distance = 24;
@@ -39,15 +40,18 @@ export function createFlightScreen(canvas, { worlds, onFrame }) {
     const b = liveFrame(state.flight), a = state.flight.frames.at(-1) || b;
     stage.setPose(a, b, state.flight.done ? 0 : Math.min(state.acc / STEP, 1), state.flight.done);
     stage.render(dt);
-    onFrame?.(state.flight);
+    onFrame?.(state.flight, state.weights ? forward(state.weights, state.flight.obs) : null);
     state.raf = requestAnimationFrame(loop);
   }
 
-  // Only draw while the screen is on screen.
-  new IntersectionObserver(([entry]) => {
-    state.visible = entry.isIntersecting;
+  // Only fly while the screen (or something watching it, like the brain) is on screen.
+  const seen = new Set();
+  const observer = new IntersectionObserver((entries) => {
+    for (const e of entries) e.isIntersecting ? seen.add(e.target) : seen.delete(e.target);
+    state.visible = seen.size > 0;
     if (state.visible && !state.raf && state.world) { state.last = performance.now(); state.raf = requestAnimationFrame(loop); }
-  }).observe(canvas);
+  });
+  for (const el of [canvas, ...watch]) observer.observe(el);
 
   return {
     setWorld(id) {
@@ -58,7 +62,7 @@ export function createFlightScreen(canvas, { worlds, onFrame }) {
       newFlight();
       if (first && state.visible && !state.raf) { state.last = performance.now(); state.raf = requestAnimationFrame(loop); }
     },
-    /** Fly these weights from the next flight on (null: fly at random). */
+    /** Fly these weights from this frame on (null: fly at random). */
     setPilot(weights) { state.weights = weights ? prepare({ ...weights }) : null; },
   };
 }

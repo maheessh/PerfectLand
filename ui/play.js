@@ -566,7 +566,8 @@ function renderRecords() {
     const r = records[id] || {};
     const tr = body.insertRow();
     const name = tr.insertCell();
-    name.innerHTML = `<span class="world-cell"><i></i></span>`;
+    name.innerHTML = `<span class="world-cell"><span class="world-num"></span><i></i></span>`;
+    name.querySelector(".world-num").textContent = String(WORLD_ORDER.indexOf(id) + 1).padStart(2, "0");
     name.querySelector("i").style.background = WORLD_DOT[id] || "#888";
     name.firstChild.append(w.name);
     const cells = [`${Math.abs(w.gravity)} m/s²`, fmt.score(r.best), fmt.score(r.aiBest), String(r.rounds || 0)];
@@ -772,7 +773,7 @@ async function init() {
   game.worlds = await fetch("data/worlds.json").then((r) => r.json());
   game.server = location.protocol.startsWith("http") && !location.hostname.endsWith("github.io") && (await detectServer());
   // Mission control runs on your own computer (python app.py), so the published game has no link to it.
-  if (location.hostname.endsWith("github.io")) for (const id of ["switch-mc", "panel-mc"]) $(id).hidden = true;
+  if (location.hostname.endsWith("github.io")) $("panel-mc").hidden = true;
   setupNav();
   const params = new URLSearchParams(location.search);
   const mode = params.get("mode");
